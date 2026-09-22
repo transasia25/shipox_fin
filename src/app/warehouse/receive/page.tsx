@@ -11,6 +11,7 @@ import {
   PackageCheck,
   Repeat2,
   ScanBarcode,
+  ScanSearch,
   Settings2,
   Undo2,
 } from "lucide-react";
@@ -360,6 +361,12 @@ function ReceiveScreen({
         description={`${warehouse} · кладовщик: ${receiverName}`}
         actions={
           <>
+            {/* На этом экране видно приёмки только выбранного курьера: что за
+                день пробили все и на всех складах — в истории действий. */}
+            <Button variant="outline" render={<Link href="/warehouse/scans" />}>
+              <ScanSearch className="size-4" />
+              История за день
+            </Button>
             {/* Под конец дня с этого же склада уходят машины — но собирает их
                 диспетчер, поэтому кладовщику кнопку не показываем. */}
             {canDispatch && (

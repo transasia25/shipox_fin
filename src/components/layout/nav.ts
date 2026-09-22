@@ -48,7 +48,7 @@ export const NAV: NavItem[] = [
   { href: "/warehouse/receive", label: "Приёмка на складе", icon: ScanBarcode, roles: WAREHOUSE },
   { href: "/warehouse/transit", label: "Отправка в транзит", icon: PackageCheck, roles: WAREHOUSE },
   { href: "/transit/dispatch", label: "Отправка машин", icon: Forklift, roles: TRANSIT },
-  { href: "/warehouse/scans", label: "Сканы за день", icon: ScanSearch, roles: WAREHOUSE },
+  { href: "/warehouse/scans", label: "История действий", icon: ScanSearch, roles: WAREHOUSE },
   {
     href: "/couriers",
     label: "Курьеры",

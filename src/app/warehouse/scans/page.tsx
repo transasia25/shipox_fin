@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { PackageCheck, ScanLine, Undo2 } from "lucide-react";
+import { PackageCheck, ScanLine, Truck, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,15 +23,15 @@ import {
   startOfDayISO,
   toDateInputValue,
 } from "@/lib/format";
-import { shortWarehouse } from "@/lib/transit";
+import { legLabel, shortWarehouse } from "@/lib/transit";
 
 /**
- * Журнал сканов: что сегодня пробили на складах.
+ * История действий: что сегодня делали на складах.
  *
  * Рабочие экраны показывают своё — приёмка текущего курьера, отправка машин
- * выбранный рейс. Здесь всё вместе: и приёмки от курьеров, и отправки в
- * транзит, по всем складам и сотрудникам. Кладовщику бэкенд отдаёт только его
- * склад, поэтому экран один на всех.
+ * выбранный рейс. Здесь всё вместе и по времени: приёмки от курьеров, отправки
+ * коробок в транзит и погрузки машин, по всем складам и сотрудникам.
+ * Кладовщику бэкенд отдаёт только его склад, поэтому экран один на всех.
  */
 export default function ScansPage() {
   const [day, setDay] = useState(() => toDateInputValue(new Date().toISOString()));
@@ -69,8 +69,8 @@ export default function ScansPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Сканы за день"
-        description="Что пробили на складах: приёмки от курьеров и отправки в транзит. Видно, кто сканировал, на каком складе и какой заказ."
+        title="История действий"
+        description="Что делали на складах за день: приёмки от курьеров, отправки коробок в транзит и погрузки машин. Видно, кто, когда, на каком складе и с каким заказом."
       />
 
       <Card className="gap-3 p-4">
@@ -123,17 +123,22 @@ export default function ScansPage() {
         </div>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard label="Коробок пробито" value={formatNumber(totals?.boxes ?? 0)} />
         <KpiCard label="Заказов" value={formatNumber(totals?.orders ?? 0)} />
         <KpiCard label="Приёмка от курьеров" value={formatNumber(totals?.receipts ?? 0)} />
         <KpiCard label="Отправка в транзит" value={formatNumber(totals?.transit ?? 0)} />
+        <KpiCard
+          label="Погрузок машин"
+          value={formatNumber(totals?.trips ?? 0)}
+          hint={`${formatNumber(totals?.shipped ?? 0)} ${plural(totals?.shipped ?? 0, "заказ уехал", "заказа уехало", "заказов уехало")}`}
+        />
       </div>
 
       {(summary.data?.people.length ?? 0) > 0 && (
         <Card className="gap-0 py-0">
           <div className="border-b border-border px-4 py-3 text-base font-medium">
-            Кто сколько пробил
+            Кто что делал
           </div>
           <ul className="divide-y divide-border text-sm">
             {(summary.data?.people ?? []).map((person) => (
@@ -154,6 +159,7 @@ export default function ScansPage() {
                   {formatNumber(person.receipts)}
                   {" · транзит "}
                   {formatNumber(person.transit)}
+                  {person.trips > 0 && ` · машин ${formatNumber(person.trips)}`}
                 </span>
               </li>
             ))}
@@ -168,7 +174,7 @@ export default function ScansPage() {
       ) : (
         <Card className="gap-0 py-0">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-            <span className="text-base font-medium">Сканы</span>
+            <span className="text-base font-medium">Действия</span>
             <span className="text-xs text-muted-foreground">
               {byWarehouse.map(([name, count]) => `${shortWarehouse(name)} ${count}`).join(" · ")}
             </span>
@@ -176,7 +182,7 @@ export default function ScansPage() {
 
           {rows.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              За этот день ничего не пробили.
+              За этот день на складах ничего не делали.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -185,10 +191,10 @@ export default function ScansPage() {
                   <tr className="border-b border-border">
                     <th className="px-4 py-2 text-left font-medium">Время</th>
                     <th className="px-2 py-2 text-left font-medium">Что</th>
-                    <th className="px-2 py-2 text-left font-medium">Заказ</th>
+                    <th className="px-2 py-2 text-left font-medium">Заказ / рейс</th>
                     <th className="px-2 py-2 text-left font-medium">Склад</th>
                     <th className="px-2 py-2 text-left font-medium">Кто пробил</th>
-                    <th className="px-4 py-2 text-left font-medium">Курьер</th>
+                    <th className="px-4 py-2 text-left font-medium">Курьер / водитель</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -211,25 +217,47 @@ export default function ScansPage() {
                             <ScanLine className="size-3.5 text-emerald-600 dark:text-emerald-400" />
                             приёмка
                           </span>
-                        ) : (
+                        ) : row.kind === "TRANSIT" ? (
                           <span className="flex items-center gap-1 text-xs">
                             <PackageCheck className="size-3.5 text-sky-600 dark:text-sky-400" />в
                             транзит
                           </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs">
+                            <Truck className="size-3.5 text-amber-600 dark:text-amber-400" />
+                            {row.trip?.topUp ? "догрузка" : "машина"}
+                          </span>
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        <Link
-                          href={`/orders/${row.order.orderNumber}`}
-                          className="font-medium tabular-nums hover:underline"
-                        >
-                          {row.order.orderNumber}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">
-                          {row.order.customerName ?? "—"}
-                          {row.order.receiverCity ? ` · ${row.order.receiverCity}` : ""}
-                          {row.order.pieceCount > 1 ? ` · ${row.order.pieceCount} мест` : ""}
-                        </div>
+                        {row.order ? (
+                          <>
+                            <Link
+                              href={`/orders/${row.order.orderNumber}`}
+                              className="font-medium tabular-nums hover:underline"
+                            >
+                              {row.order.orderNumber}
+                            </Link>
+                            <div className="text-xs text-muted-foreground">
+                              {row.order.customerName ?? "—"}
+                              {row.order.receiverCity ? ` · ${row.order.receiverCity}` : ""}
+                              {row.order.pieceCount > 1 ? ` · ${row.order.pieceCount} мест` : ""}
+                            </div>
+                          </>
+                        ) : row.trip ? (
+                          <>
+                            <span className="font-medium">
+                              {row.trip.route ? `${row.trip.route} · ` : ""}
+                              {legLabel(row.trip.fromWarehouse, row.trip.toWarehouse)}
+                            </span>
+                            <div className="text-xs text-muted-foreground">
+                              {row.trip.carrier} · {formatNumber(row.trip.orders)}{" "}
+                              {plural(row.trip.orders, "заказ", "заказа", "заказов")}
+                            </div>
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap" title={row.warehouse}>
                         {shortWarehouse(row.warehouse)}
@@ -238,6 +266,11 @@ export default function ScansPage() {
                       <td className="px-4 py-2">
                         {row.courier ? (
                           row.courier.name
+                        ) : row.trip ? (
+                          <span className="text-xs text-muted-foreground">
+                            {row.trip.driverName ?? "водитель не указан"}
+                            {row.trip.vehicleNumber ? ` · ${row.trip.vehicleNumber}` : ""}
+                          </span>
                         ) : (
                           <Badge variant="secondary">без курьера</Badge>
                         )}

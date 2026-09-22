@@ -727,10 +727,13 @@ export interface User extends Session {
   _count: { sessions: number };
 }
 
-/** Строка журнала сканов: приёмка от курьера или отправка в транзит. */
+/**
+ * Строка истории действий: приёмка от курьера, отправка коробки в транзит или
+ * погрузка машины. У скана есть заказ, у погрузки — рейс и число заказов.
+ */
 export interface ScanJournalRow {
   id: string;
-  kind: "RECEIPT" | "TRANSIT";
+  kind: "RECEIPT" | "TRANSIT" | "TRIP";
   at: string;
   warehouse: string;
   /** Кто пробил — имя из учётной записи. */
@@ -745,16 +748,39 @@ export interface ScanJournalRow {
     receiverCity: string | null;
     statusLabel: string;
     pieceCount: number;
-  };
+  } | null;
+  trip: {
+    id: string;
+    route: string | null;
+    direction: TransitDirection;
+    carrier: string;
+    driverName: string | null;
+    vehicleNumber: string | null;
+    fromWarehouse: string;
+    toWarehouse: string;
+    orders: number;
+    /** Догрузка в уже заведённый рейс, а не отправка машины. */
+    topUp: boolean;
+  } | null;
 }
 
 export interface ScanSummary {
-  totals: { boxes: number; orders: number; receipts: number; transit: number };
+  totals: {
+    boxes: number;
+    orders: number;
+    receipts: number;
+    transit: number;
+    /** Сколько раз грузили машины: отправка и догрузка считаются отдельно. */
+    trips: number;
+    /** Сколько заказов ушло этими погрузками. */
+    shipped: number;
+  };
   people: Array<{
     by: string;
     warehouse: string;
     receipts: number;
     transit: number;
+    trips: number;
     orders: number;
   }>;
 }
