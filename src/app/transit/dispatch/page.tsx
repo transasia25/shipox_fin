@@ -60,6 +60,14 @@ function runKey(routeId: string, direction: TransitDirection | string): string {
 /** Сколько заказов показываем за раз: на самом длинном рейсе их около полутора тысяч. */
 const PAGE = 2000;
 
+/**
+ * Отсечка по времени создания для непробитого хвоста.
+ *
+ * Машины уходят вечером: заказ, заведённый после шести, курьер привезёт уже
+ * назавтра, и в сегодняшнем листе он только мешает.
+ */
+const TAIL_CUTOFF_HOUR = 18;
+
 /** Весь рейс целиком, а не один склад: так диспетчер собирает обратную машину. */
 const ALL_WAREHOUSES = "*";
 
@@ -119,6 +127,25 @@ function DispatchScreen() {
   const [sending, setSending] = useState(false);
 
   const period = { from: startOfDayISO(day), to: endOfDayISO(day) };
+  /**
+   * Окно создания для непробитого хвоста.
+   *
+   * Хвост — заказы, которые по маршруту выезжают отсюда, но сканером не
+   * пробиты. Без границ он копит всё, что когда-либо не уехало: на ташкентском
+   * рейсе под восемьсот строк, и свежие в них теряются. В вечернюю машину
+   * попадают только заказы этого дня, заведённые до отсечки, и вчерашние —
+   * их и показываем.
+   */
+  const tail = (() => {
+    // Дата без часового пояса («2026-09-22») читается как UTC, поэтому день
+    // собирается из строки с временем: иначе граница уезжает на сутки.
+    const from = new Date(`${day}T00:00:00`);
+    from.setDate(from.getDate() - 1);
+    return {
+      tailFrom: from.toISOString(),
+      tailTo: new Date(`${day}T${String(TAIL_CUTOFF_HOUR).padStart(2, "0")}:00:00`).toISOString(),
+    };
+  })();
   // Со складом лист строится по его сканам, «все склады рейса» — по всему
   // ждущему грузу: пробитое там разбросано по дороге.
   const runs = useBackend<Array<ReadyRun | PendingLegGroup>>(
@@ -126,7 +153,7 @@ function DispatchScreen() {
       allWarehouses
         ? listPendingLegGroups()
         : warehouse
-          ? listReadyRuns({ warehouse, ...period })
+          ? listReadyRuns({ warehouse, ...period, ...tail })
           : Promise.resolve([]),
     [warehouse, day],
   );
@@ -140,10 +167,11 @@ function DispatchScreen() {
             routeId,
             direction: direction as TransitDirection,
             warehouse: allWarehouses ? undefined : warehouse,
+            ...tail,
             limit: PAGE,
           })
         : Promise.resolve([]),
-    [selectedRun, warehouse],
+    [selectedRun, warehouse, day],
   );
 
   /** Где ждёт груз этого рейса — вся дорога сразу, в порядке движения. */
@@ -670,7 +698,7 @@ function DispatchScreen() {
               {unscanned.length > 0 && (
                 <LegTable
                   title="Не сканировались"
-                  hint="Идут этим рейсом по маршруту, но сканером их не пробили. Отправлять — только если коробка действительно в машине."
+                  hint={`Заведены со вчера и до ${TAIL_CUTOFF_HOUR}:00 этого дня: идут этим рейсом по маршруту, но сканером их не пробили. Отправлять — только если коробка действительно в машине.`}
                   legs={unscanned}
                   groupBy={groupBy}
                   loadOrder={loadOrder}

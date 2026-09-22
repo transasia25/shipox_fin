@@ -484,6 +484,9 @@ export function listPendingLegs(query: {
   scanned?: boolean;
   from?: string;
   to?: string;
+  /** Непробитый хвост: только заказы, созданные в этом окне. */
+  tailFrom?: string;
+  tailTo?: string;
   limit?: number;
 }): Promise<PendingLeg[]> {
   return request("/transit/pending", { params: query });
@@ -526,6 +529,9 @@ export function listReadyRuns(query: {
   warehouse: string;
   from?: string;
   to?: string;
+  /** Непробитый хвост: только заказы, созданные в этом окне. */
+  tailFrom?: string;
+  tailTo?: string;
 }): Promise<ReadyRun[]> {
   return request("/transit/ready", { params: query });
 }
@@ -571,6 +577,11 @@ export function createTransitTrip(body: {
   legIds?: string[];
 }): Promise<TransitTrip & { orders: number; nextRuns: NextRun[] }> {
   return request("/transit/trips", { method: "POST", body: JSON.stringify(body) });
+}
+
+/** Отменить рейс целиком: заказы вернутся в список ждущих распределения. */
+export function cancelTransitTrip(id: string): Promise<{ cancelled: true; orders: number }> {
+  return request(`/transit/trips/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /** Догрузить заказы в уже идущий рейс — им пользуются ПВЗ по дороге. */

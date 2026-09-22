@@ -3,12 +3,21 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowRight, RefreshCw, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, RefreshCw, TriangleAlert, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -22,6 +31,7 @@ import { KpiCard } from "@/components/ui-kit/kpi-card";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { useBackend } from "@/hooks/use-backend";
 import {
+  cancelTransitTrip,
   detachTripLeg,
   getTransitTrip,
   getTransitSummary,
@@ -333,6 +343,7 @@ export default function TransitPage() {
           {openTrip && (
             <TripDetail
               trip={openTrip}
+              onCancelled={() => setOpenTrip(null)}
               onChanged={() => {
                 trips.reload();
                 pending.reload();
@@ -351,9 +362,20 @@ export default function TransitPage() {
  * обратно собирает по дороге — важнее, где его погрузили и кто это сделал.
  * Заказ можно снять: он вернётся в список ждущих.
  */
-function TripDetail({ trip, onChanged }: { trip: TransitTrip; onChanged: () => void }) {
+function TripDetail({
+  trip,
+  onChanged,
+  onCancelled,
+}: {
+  trip: TransitTrip;
+  onChanged: () => void;
+  /** Рейса больше нет — закрываем лист, показывать в нём нечего. */
+  onCancelled: () => void;
+}) {
   const detail = useBackend(() => getTransitTrip(trip.id), [trip.id]);
   const [detaching, setDetaching] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const legs = useMemo(() => detail.data?.legs ?? [], [detail.data]);
   const byLoading = trip.direction === "REVERSE";
@@ -380,33 +402,72 @@ function TripDetail({ trip, onChanged }: { trip: TransitTrip; onChanged: () => v
     }
   };
 
+  /**
+   * Отмена рейса целиком.
+   *
+   * Машину заводят заранее и ошибаются: не тот перевозчик, пробная отправка.
+   * Снимать заказы по одному долго, а лишний рейс попадёт в отчёт «кто сколько
+   * вёз», поэтому запись удаляется, а заказы возвращаются в лист.
+   */
+  const cancel = async () => {
+    setCancelling(true);
+    try {
+      const result = await cancelTransitTrip(trip.id);
+      toast.success(
+        result.orders > 0
+          ? `Рейс отменён — ${formatNumber(result.orders)} заказов вернулись в лист`
+          : "Рейс отменён",
+      );
+      setConfirming(false);
+      onCancelled();
+      onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отменить рейс");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   return (
     <>
       <SheetHeader className="border-b border-border">
         <SheetTitle className="flex flex-wrap items-center justify-between gap-2">
           {trip.carrier.name}
-          <Button
-            variant="outline"
-            size="sm"
-            render={
-              <Link
-                href={{
-                  pathname: "/transit/dispatch",
-                  query: {
-                    routeId: trip.routeId,
-                    direction: trip.direction === "FORWARD" ? "REVERSE" : "FORWARD",
-                    warehouse: trip.toWarehouse,
-                    carrierId: trip.carrierId,
-                    ...(trip.driverName ? { driverName: trip.driverName } : {}),
-                    ...(trip.vehicleNumber ? { vehicleNumber: trip.vehicleNumber } : {}),
-                  },
-                }}
-              />
-            }
-          >
-            <RefreshCw className="size-4" />
-            Обратный рейс
-          </Button>
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              render={
+                <Link
+                  href={{
+                    pathname: "/transit/dispatch",
+                    query: {
+                      routeId: trip.routeId,
+                      direction: trip.direction === "FORWARD" ? "REVERSE" : "FORWARD",
+                      warehouse: trip.toWarehouse,
+                      carrierId: trip.carrierId,
+                      ...(trip.driverName ? { driverName: trip.driverName } : {}),
+                      ...(trip.vehicleNumber ? { vehicleNumber: trip.vehicleNumber } : {}),
+                    },
+                  }}
+                />
+              }
+            >
+              <RefreshCw className="size-4" />
+              Обратный рейс
+            </Button>
+            {/* Отмена стоит последней: действие разрушительное, и промахнуться
+                мимо «Обратного рейса» не должно быть легко. */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive"
+              onClick={() => setConfirming(true)}
+            >
+              <Trash2 className="size-4" />
+              Отменить рейс
+            </Button>
+          </span>
         </SheetTitle>
         <SheetDescription>
           <Badge variant="secondary" className="mr-1.5">
@@ -479,6 +540,28 @@ function TripDetail({ trip, onChanged }: { trip: TransitTrip; onChanged: () => v
           ))}
         </div>
       )}
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Отменить рейс?</DialogTitle>
+            <DialogDescription>
+              {trip.carrier.name} · {legLabel(trip.fromWarehouse, trip.toWarehouse)} ·{" "}
+              {formatDate(trip.departedAt)}. Запись рейса удалится,{" "}
+              {formatNumber(trip._count.legs)} заказов вернутся в лист отправки — их можно будет
+              отправить заново.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" render={<DialogClose />}>
+              Не отменять
+            </Button>
+            <Button variant="destructive" onClick={cancel} disabled={cancelling}>
+              {cancelling ? "Отменяю…" : "Отменить рейс"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
