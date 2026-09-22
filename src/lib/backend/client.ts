@@ -32,6 +32,7 @@ import type {
   User,
   UserRole,
   DetachedLeg,
+  NextRun,
   PendingLeg,
   PendingLegGroup,
   PendingWarehouse,
@@ -568,7 +569,7 @@ export function createTransitTrip(body: {
   note?: string;
   /** Можно не передавать: рейс заводится заранее и наполняется по пути. */
   legIds?: string[];
-}): Promise<TransitTrip & { orders: number }> {
+}): Promise<TransitTrip & { orders: number; nextRuns: NextRun[] }> {
   return request("/transit/trips", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -576,7 +577,7 @@ export function createTransitTrip(body: {
 export function attachTripLegs(
   tripId: string,
   body: { legIds: string[] },
-): Promise<{ orders: number }> {
+): Promise<{ orders: number; nextRuns: NextRun[] }> {
   return request(`/transit/trips/${encodeURIComponent(tripId)}/legs`, {
     method: "POST",
     body: JSON.stringify(body),

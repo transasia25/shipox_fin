@@ -27,7 +27,13 @@ import {
   listTransitTrips,
   listWarehouses,
 } from "@/lib/backend/client";
-import type { PendingLeg, PendingLegGroup, ReadyRun, TransitDirection } from "@/lib/backend/types";
+import type {
+  NextRun,
+  PendingLeg,
+  PendingLegGroup,
+  ReadyRun,
+  TransitDirection,
+} from "@/lib/backend/types";
 import {
   endOfDayISO,
   formatDate,
@@ -283,6 +289,26 @@ function DispatchScreen() {
   const toggle = (legId: string, value: boolean) =>
     toggleMany([{ id: legId } as PendingLeg], value);
 
+  /**
+   * Заказам этой машины нужна вторая: предлагаем назначить её сразу.
+   *
+   * Ташкент — Нукус везут две машины, до Бухары одна, дальше другая. Второе
+   * плечо становится видимым только после отправки первого, и без подсказки
+   * диспетчер про него забудет: коробка уедет до Бухары и там встанет.
+   */
+  const offerNextRun = (next: NextRun[]) => {
+    const run = next[0];
+    if (!run) return;
+    toast("Этим заказам нужна вторая машина", {
+      description: `${formatNumber(run.orders)} ${plural(run.orders, "заказ едет", "заказа едут", "заказов едут")} дальше: ${legLabel(run.fromWarehouse, run.toWarehouse)}.`,
+      duration: 15_000,
+      action: {
+        label: "Назначить перевозчика",
+        onClick: () => selectRun(runKey(run.route.id, run.direction)),
+      },
+    });
+  };
+
   const reload = () => {
     legs.reload();
     runs.reload();
@@ -298,6 +324,7 @@ function DispatchScreen() {
       if (trip) {
         const result = await attachTripLegs(trip.id, { legIds });
         toast.success(`Догружено: ${formatNumber(result.orders)} заказов`);
+        offerNextRun(result.nextRuns);
       } else {
         const result = await createTransitTrip({
           carrierId,
@@ -317,6 +344,7 @@ function DispatchScreen() {
         setNote("");
         setDriverName("");
         setVehicleNumber("");
+        offerNextRun(result.nextRuns);
       }
       resetPicks();
       reload();

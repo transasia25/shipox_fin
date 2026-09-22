@@ -617,6 +617,21 @@ export interface PendingLegGroup {
   orders: number;
 }
 
+/**
+ * Следующее плечо отправленных заказов.
+ *
+ * Ташкент — Нукус везут две машины: до Бухары одна, дальше другая. Отправка
+ * возвращает такие плечи, чтобы перевозчика на них назначили сразу, не дожидаясь,
+ * пока коробка доедет.
+ */
+export interface NextRun {
+  route: TransitRouteRef;
+  direction: TransitDirection;
+  fromWarehouse: string;
+  toWarehouse: string;
+  orders: number;
+}
+
 export interface TransitTrip {
   id: string;
   carrierId: string;
