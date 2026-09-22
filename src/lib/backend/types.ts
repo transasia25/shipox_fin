@@ -343,7 +343,13 @@ export interface ReceiveResult {
 export interface ReceiptJournalRow extends Receipt {
   order: Pick<
     ReceiptOrder,
-    "id" | "orderNumber" | "customerName" | "senderCity" | "receiverCity" | "pieceCount" | "statusLabel"
+    | "id"
+    | "orderNumber"
+    | "customerName"
+    | "senderCity"
+    | "receiverCity"
+    | "pieceCount"
+    | "statusLabel"
   >;
 }
 
@@ -542,12 +548,7 @@ export interface PendingWarehouse {
 
 /** Исход скана коробки на отправку в транзит. */
 export type TransitLoadStatus =
-  | "ACCEPTED"
-  | "ALREADY_SCANNED"
-  | "CLOSED"
-  | "NO_TRANSIT"
-  | "IN_TRIP"
-  | "NOT_FOUND";
+  "ACCEPTED" | "ALREADY_SCANNED" | "CLOSED" | "NO_TRANSIT" | "IN_TRIP" | "NOT_FOUND";
 
 export interface TransitLoadLeg {
   id: string;
@@ -724,4 +725,36 @@ export interface User extends Session {
   createdAt: string;
   /** Сколько устройств сейчас с его сессией. */
   _count: { sessions: number };
+}
+
+/** Строка журнала сканов: приёмка от курьера или отправка в транзит. */
+export interface ScanJournalRow {
+  id: string;
+  kind: "RECEIPT" | "TRANSIT";
+  at: string;
+  warehouse: string;
+  /** Кто пробил — имя из учётной записи. */
+  by: string;
+  courier: { id: string; name: string } | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  order: {
+    id: string;
+    orderNumber: string;
+    customerName: string | null;
+    receiverCity: string | null;
+    statusLabel: string;
+    pieceCount: number;
+  };
+}
+
+export interface ScanSummary {
+  totals: { boxes: number; orders: number; receipts: number; transit: number };
+  people: Array<{
+    by: string;
+    warehouse: string;
+    receipts: number;
+    transit: number;
+    orders: number;
+  }>;
 }

@@ -164,8 +164,39 @@ function DispatchScreen() {
   );
 
   const rows = useMemo(() => legs.data ?? [], [legs.data]);
-  const scanned = useMemo(() => rows.filter((leg) => leg.scan), [rows]);
-  const unscanned = useMemo(() => rows.filter((leg) => !leg.scan), [rows]);
+
+  /**
+   * Лист собирается на день, а коробки на складе копятся.
+   *
+   * Что пробили вчера и не успели отправить, лежит на складе и должно уехать
+   * сегодняшней машиной — но отдельной частью листа, чтобы не смешиваться с
+   * сегодняшним сканом. Пробитое уже после выбранного дня относится к листу
+   * того дня и здесь не показывается.
+   */
+  const parts = useMemo(() => {
+    const from = new Date(period.from).getTime();
+    const to = new Date(period.to).getTime();
+    const carried: PendingLeg[] = [];
+    const today: PendingLeg[] = [];
+    const later: PendingLeg[] = [];
+    const unscanned: PendingLeg[] = [];
+    for (const leg of rows) {
+      if (!leg.scan) unscanned.push(leg);
+      else {
+        const at = new Date(leg.scan.at).getTime();
+        if (at < from) carried.push(leg);
+        else if (at > to) later.push(leg);
+        else today.push(leg);
+      }
+    }
+    return { carried, today, later, unscanned };
+  }, [rows, period.from, period.to]);
+
+  const { carried, today, later, unscanned } = parts;
+  /** Готовое к отправке: пробитое в этот день и остатки с прошлых дней. */
+  const scanned = useMemo(() => [...carried, ...today], [carried, today]);
+  /** Весь видимый лист: сканы чужих дней в отметки «выбрать все» не идут. */
+  const visible = useMemo(() => [...scanned, ...unscanned], [scanned, unscanned]);
 
   const runCards = useMemo(
     () =>
@@ -201,9 +232,9 @@ function DispatchScreen() {
 
   const checked = useMemo(() => {
     const next = new Set(scanned.filter((leg) => !unpicked.has(leg.id)).map((leg) => leg.id));
-    for (const leg of rows) if (picked.has(leg.id)) next.add(leg.id);
+    for (const leg of visible) if (picked.has(leg.id)) next.add(leg.id);
     return next;
-  }, [scanned, rows, picked, unpicked]);
+  }, [scanned, visible, picked, unpicked]);
 
   // Перевозчик, за которым закреплено это направление, идёт первым: список из
   // двенадцати, и каждый раз искать нужного неудобно.
@@ -293,7 +324,7 @@ function DispatchScreen() {
     }
   };
 
-  const checkedWeight = rows
+  const checkedWeight = visible
     .filter((leg) => checked.has(leg.id))
     .reduce((sum, leg) => sum + leg.order.weight, 0);
 
@@ -324,7 +355,7 @@ function DispatchScreen() {
         </Button>
         <PageHeader
           title="Отправка машин"
-          description="Лист за день: заказы, пробитые сканером на приёмке и на отправке в транзит. Обратную машину грузят несколько ПВЗ по пути — выберите «Все склады рейса», чтобы собрать её целиком."
+          description="Лист за день: заказы, пробитые сканером на приёмке и на отправке в транзит. Что не уехало в прошлые дни, показано отдельно и едет первым. Обратную машину грузят несколько ПВЗ по пути — выберите «Все склады рейса», чтобы собрать её целиком."
         />
       </div>
 
@@ -354,7 +385,11 @@ function DispatchScreen() {
               id="day"
               type="date"
               value={day}
-              onChange={(event) => setDay(event.target.value)}
+              onChange={(event) => {
+                // Другой день — другой лист: отметки от прошлого не переносим.
+                setDay(event.target.value);
+                resetPicks();
+              }}
               className="h-8 w-40"
             />
           </div>
@@ -548,7 +583,8 @@ function DispatchScreen() {
                 {run ? legLabel(run.fromWarehouse, run.toWarehouse) : "—"}
               </span>
               <span className="text-muted-foreground">
-                пробито {formatNumber(scanned.length)} ({formatNumber(boxes(scanned))} мест) · не
+                пробито {formatNumber(scanned.length)} ({formatNumber(boxes(scanned))} мест)
+                {carried.length > 0 && ` · с прошлых дней ${formatNumber(carried.length)}`} · не
                 сканировались {formatNumber(unscanned.length)}
                 {rows.length === PAGE && " (показаны первые — отправьте их, появятся следующие)"}
                 {checked.size > 0 &&
@@ -559,10 +595,12 @@ function DispatchScreen() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => toggleMany(rows, checked.size !== rows.length)}
-                disabled={rows.length === 0}
+                onClick={() => toggleMany(visible, checked.size !== visible.length)}
+                disabled={visible.length === 0}
               >
-                {checked.size === rows.length && rows.length > 0 ? "Снять все" : "Выбрать все"}
+                {checked.size === visible.length && visible.length > 0
+                  ? "Снять все"
+                  : "Выбрать все"}
               </Button>
               <Button onClick={send} disabled={sending || !canSend}>
                 <Truck className="size-4" />
@@ -571,21 +609,35 @@ function DispatchScreen() {
             </div>
           </div>
 
-          {rows.length === 0 ? (
+          {visible.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              На этом рейсе заказов не осталось.
+              {later.length > 0
+                ? `На этот день листа нет: ${formatNumber(later.length)} ${plural(later.length, "заказ пробит", "заказа пробито", "заказов пробито")} позже.`
+                : "На этом рейсе заказов не осталось."}
             </p>
           ) : (
             <div className="overflow-x-auto">
+              {carried.length > 0 && (
+                <LegTable
+                  title="Осталось с прошлых дней"
+                  hint="Пробили раньше, но машину так и не отправили — коробки лежат на складе и едут первыми."
+                  legs={carried}
+                  groupBy={groupBy}
+                  loadOrder={loadOrder}
+                  checked={checked}
+                  toggle={toggle}
+                  toggleMany={toggleMany}
+                />
+              )}
               <LegTable
-                title="Пробито сканером"
-                legs={scanned}
+                title={`Пробито ${formatDate(period.from)}`}
+                legs={today}
                 groupBy={groupBy}
                 loadOrder={loadOrder}
                 checked={checked}
                 toggle={toggle}
                 toggleMany={toggleMany}
-                empty="Сегодня на этом рейсе сканером ничего не пробили."
+                empty="В этот день на рейсе сканером ничего не пробили."
               />
               {unscanned.length > 0 && (
                 <LegTable

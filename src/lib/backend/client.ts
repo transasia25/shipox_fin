@@ -36,6 +36,8 @@ import type {
   PendingLegGroup,
   PendingWarehouse,
   ReadyRun,
+  ScanJournalRow,
+  ScanSummary,
   TransitDirection,
   TransitLoadResult,
   TransitLoadScan,
@@ -76,12 +78,16 @@ export class ApiError extends Error {
 export type Params = Record<string, string | number | boolean | undefined | null>;
 
 function buildUrl(path: string, params?: Params): string {
-  const url = new URL(BASE_URL + path);
+  // База бывает относительной: на сервере фронт и API отдаёт один адрес, и
+  // тогда NEXT_PUBLIC_API_URL равен «/api». `new URL` такую базу не принимает,
+  // поэтому строку собираем сами, а не через разбор адреса.
+  const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value === undefined || value === null || value === "") continue;
-    url.searchParams.set(key, String(value));
+    search.set(key, String(value));
   }
-  return url.toString();
+  const query = search.toString();
+  return `${BASE_URL}${path}${query ? `?${query}` : ""}`;
 }
 
 async function request<T>(path: string, init?: RequestInit & { params?: Params }): Promise<T> {
@@ -169,15 +175,17 @@ export function listCities(query: OrdersQuery = {}): Promise<CityRef[]> {
 
 // ────────────────────────────── Выгрузки ──────────────────────────────
 
-export function listExports(params: { kind?: ExportKind; limit?: number } = {}): Promise<
-  ExportRun[]
-> {
+export function listExports(
+  params: { kind?: ExportKind; limit?: number } = {},
+): Promise<ExportRun[]> {
   return request("/exports", { params });
 }
 
-export function runExport(body: { kind: ExportKind; from?: string; to?: string }): Promise<
-  ExportRun
-> {
+export function runExport(body: {
+  kind: ExportKind;
+  from?: string;
+  to?: string;
+}): Promise<ExportRun> {
   return request("/exports/run", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -322,6 +330,27 @@ export function setUserPassword(id: string, password: string): Promise<{ ok: boo
   });
 }
 
+/** Журнал сканов: кто и что пробил на складах. Админ видит всех. */
+export function listScans(query: {
+  warehouse?: string;
+  by?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  includeCancelled?: boolean;
+  limit?: number;
+}): Promise<ScanJournalRow[]> {
+  return request("/warehouse/scans", { params: query });
+}
+
+export function getScanSummary(query: {
+  warehouse?: string;
+  from?: string;
+  to?: string;
+}): Promise<ScanSummary> {
+  return request("/warehouse/scans/summary", { params: query });
+}
+
 export function listWarehouses(): Promise<WarehouseRef[]> {
   return request("/warehouse/warehouses");
 }
@@ -377,9 +406,9 @@ export function listTariffCities(search?: string): Promise<TariffCity[]> {
   return request("/courier-tariffs/cities", { params: { search } });
 }
 
-export function getCourierPayoutSummary(period: { from?: string; to?: string } = {}): Promise<
-  CourierPayoutSummary
-> {
+export function getCourierPayoutSummary(
+  period: { from?: string; to?: string } = {},
+): Promise<CourierPayoutSummary> {
   return request("/courier-payouts/summary", { params: period });
 }
 
@@ -555,8 +584,7 @@ export function attachTripLegs(
 }
 
 export function detachTripLeg(tripId: string, legId: string): Promise<{ detached: boolean }> {
-  return request(
-    `/transit/trips/${encodeURIComponent(tripId)}/legs/${encodeURIComponent(legId)}`,
-    { method: "DELETE" },
-  );
+  return request(`/transit/trips/${encodeURIComponent(tripId)}/legs/${encodeURIComponent(legId)}`, {
+    method: "DELETE",
+  });
 }
