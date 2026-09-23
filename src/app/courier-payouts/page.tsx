@@ -9,12 +9,14 @@ import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui-kit/error-state";
 import { KpiCard } from "@/components/ui-kit/kpi-card";
 import { Money } from "@/components/ui-kit/money";
 import { PageHeader } from "@/components/ui-kit/page-header";
+import { SelectField } from "@/components/ui-kit/select-field";
 import { useBackend } from "@/hooks/use-backend";
 import {
   getCourierPayoutSummary,
@@ -47,8 +49,45 @@ export default function CourierPayoutsPage() {
   const [running, setRunning] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
 
-  const summary = useBackend(() => getCourierPayoutSummary(window), [window.from, window.to]);
+  // Пустая строка — «все»: так же, как склад на отправке машин.
+  const [hub, setHub] = useState("");
+  const [city, setCity] = useState("");
+  const place = { hub: hub || undefined, city: city || undefined };
+
+  const summary = useBackend(
+    () => getCourierPayoutSummary({ ...window, ...place }),
+    [window.from, window.to, hub, city],
+  );
   const totals = summary.data?.totals;
+
+  // Списки собираются из самих начислений: в них только те города, где за
+  // период действительно была работа, и регион каждого известен сразу.
+  const places = useMemo(() => summary.data?.places ?? [], [summary.data]);
+  const hubOptions = useMemo(() => {
+    const names = [...new Set(places.map((item) => item.hub).filter((name) => name !== null))];
+    return [
+      { value: "", label: "Все регионы" },
+      ...names.sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name })),
+    ];
+  }, [places]);
+  const cityOptions = useMemo(() => {
+    const scoped = hub ? places.filter((item) => item.hub === hub) : places;
+    return [
+      { value: "", label: hub ? "Все города региона" : "Все города" },
+      ...scoped.map((item) => ({
+        value: item.city,
+        label: `${item.city} · ${formatNumber(item.payouts)}`,
+      })),
+    ];
+  }, [places, hub]);
+
+  /** Регион и город связаны: чужой город в выбранном регионе — пустая таблица. */
+  const chooseHub = (next: string) => {
+    setHub(next);
+    if (next && city && !places.some((item) => item.hub === next && item.city === city)) {
+      setCity("");
+    }
+  };
 
   const recalculate = async () => {
     setRunning(true);
@@ -148,7 +187,7 @@ export default function CourierPayoutsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Начисления курьерам"
-        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Период — по дате приёмки на складе или доставки."
+        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Период — по дате приёмки на складе или доставки. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя."
         actions={
           <>
             <Button variant="outline" render={<Link href="/courier-tariffs" />}>
@@ -161,6 +200,44 @@ export default function CourierPayoutsPage() {
           </>
         }
       />
+
+      <Card className="gap-3 p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Регион</Label>
+            <SelectField
+              value={hub}
+              onChange={chooseHub}
+              options={hubOptions}
+              placeholder="Все регионы"
+              className="min-w-52"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Город</Label>
+            <SelectField
+              value={city}
+              onChange={setCity}
+              options={cityOptions}
+              placeholder={hub ? "Все города региона" : "Все города"}
+              className="min-w-60"
+            />
+          </div>
+          {(hub || city) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mb-0.5"
+              onClick={() => {
+                setHub("");
+                setCity("");
+              }}
+            >
+              Сбросить
+            </Button>
+          )}
+        </div>
+      </Card>
 
       {summary.error ? (
         <ErrorState message={summary.error} onRetry={summary.reload} />
@@ -215,7 +292,9 @@ export default function CourierPayoutsPage() {
 
       <Sheet open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
         <SheetContent className="w-full gap-0 overflow-y-auto data-[side=right]:sm:max-w-2xl">
-          {detail && <PayoutDetail detail={detail} from={window.from} to={window.to} />}
+          {detail && (
+            <PayoutDetail detail={detail} from={window.from} to={window.to} place={place} />
+          )}
         </SheetContent>
       </Sheet>
     </div>
@@ -230,14 +309,28 @@ function Count({ value }: { value: number }) {
   );
 }
 
-function PayoutDetail({ detail, from, to }: { detail: Detail; from: string; to: string }) {
+function PayoutDetail({
+  detail,
+  from,
+  to,
+  place,
+}: {
+  detail: Detail;
+  from: string;
+  to: string;
+  /** Тот же регион и город, что в таблице: иначе суммы в панели не сойдутся. */
+  place: { hub?: string; city?: string };
+}) {
   const query =
     detail.kind === "courier"
       ? detail.row.courierId
         ? { courierId: detail.row.courierId }
         : { shipoxDriverId: detail.row.shipoxDriverId ?? undefined }
       : { status: detail.status };
-  const payouts = useBackend(() => listCourierPayouts({ ...query, from, to }), [JSON.stringify(query), from, to]);
+  const payouts = useBackend(
+    () => listCourierPayouts({ ...query, ...place, from, to }),
+    [JSON.stringify(query), from, to, place.hub, place.city],
+  );
 
   return (
     <>

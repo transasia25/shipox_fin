@@ -437,9 +437,18 @@ export interface CourierPayoutSummaryRow extends CourierPayoutCounts {
   courierName: string;
 }
 
+/** Где за период была работа: город и регион (хаб), к которому он отнесён. */
+export interface CourierPayoutPlace {
+  hub: string | null;
+  city: string;
+  payouts: number;
+}
+
 export interface CourierPayoutSummary {
   totals: CourierPayoutCounts;
   couriers: CourierPayoutSummaryRow[];
+  /** Считается по всему периоду, без учёта выбранных региона и города. */
+  places: CourierPayoutPlace[];
 }
 
 export interface CourierPayoutRunResult {

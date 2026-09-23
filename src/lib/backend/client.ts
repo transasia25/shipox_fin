@@ -408,15 +408,18 @@ export function listTariffCities(search?: string): Promise<TariffCity[]> {
 }
 
 export function getCourierPayoutSummary(
-  period: { from?: string; to?: string } = {},
+  query: { from?: string; to?: string; hub?: string; city?: string } = {},
 ): Promise<CourierPayoutSummary> {
-  return request("/courier-payouts/summary", { params: period });
+  return request("/courier-payouts/summary", { params: query });
 }
 
 export function listCourierPayouts(
   query: {
     from?: string;
     to?: string;
+    /** Регион и город начисления — те же, что выбраны в фильтре сводки. */
+    hub?: string;
+    city?: string;
     courierId?: string;
     shipoxDriverId?: string;
     status?: CourierPayoutStatus;
