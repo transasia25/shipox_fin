@@ -3,7 +3,9 @@ import type {
   CarrierInput,
   CityRef,
   Courier,
+  CourierAdjustment,
   CourierPayout,
+  CourierPayoutChange,
   CourierPayoutRunResult,
   CourierPayoutStatus,
   CourierPayoutSummary,
@@ -427,6 +429,55 @@ export function listCourierPayouts(
   } = {},
 ): Promise<CourierPayout[]> {
   return request("/courier-payouts", { params: query });
+}
+
+/** Поправить сумму начисления руками. Причина обязательна. */
+export function editCourierPayout(
+  id: string,
+  body: { amount: number; reason: string },
+): Promise<CourierPayout> {
+  return request(`/courier-payouts/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Вернуть сумму, посчитанную тарифом. */
+export function resetCourierPayout(id: string): Promise<CourierPayout> {
+  return request(`/courier-payouts/${encodeURIComponent(id)}/manual`, { method: "DELETE" });
+}
+
+/** Надбавки и удержания за период. */
+export function listCourierAdjustments(
+  query: { from?: string; to?: string; courierId?: string; shipoxDriverId?: string } = {},
+): Promise<CourierAdjustment[]> {
+  return request("/courier-payouts/adjustments", { params: query });
+}
+
+/** Плюс — надбавка, минус — удержание. К заказам не привязано. */
+export function addCourierAdjustment(body: {
+  courierId?: string;
+  shipoxDriverId?: string;
+  courierName?: string;
+  amount: number;
+  reason: string;
+  appliedAt?: string;
+}): Promise<CourierAdjustment> {
+  return request("/courier-payouts/adjustments", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function removeCourierAdjustment(id: string): Promise<{ removed: boolean }> {
+  return request(`/courier-payouts/adjustments/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Журнал правок по деньгам курьеров. */
+export function listCourierPayoutChanges(
+  query: { from?: string; to?: string; courierId?: string; limit?: number } = {},
+): Promise<CourierPayoutChange[]> {
+  return request("/courier-payouts/changes", { params: query });
 }
 
 export function runCourierPayouts(

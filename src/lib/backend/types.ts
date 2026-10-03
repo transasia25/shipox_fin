@@ -411,6 +411,13 @@ export interface CourierPayout {
   tariffId: string | null;
   earnedAt: string;
   calculatedAt: string;
+  /** Что посчитал тариф — рядом с поправленной суммой видно, от чего ушли. */
+  calculatedAmount: string | null;
+  /** Сумму поправили руками: пересчёт её больше не переписывает. */
+  manual: boolean;
+  manualReason: string | null;
+  manualBy: string | null;
+  manualAt: string | null;
   order?: {
     id: string;
     orderNumber: string;
@@ -425,10 +432,53 @@ export interface CourierPayoutCounts {
   pickups: number;
   deliveries: number;
   heavy: number;
+  /** Начислено по заказам, уже с учётом поправленных вручную сумм. */
   amount: number;
+  /** Сколько строк поправили руками. */
+  manual: number;
+  /** Надбавки и удержания за период, со знаком. */
+  adjustments: number;
+  /** Начислено плюс корректировки — столько курьер получит. */
+  payable: number;
   notPayable: number;
   cityNotFound: number;
   noTariff: number;
+}
+
+/** Надбавка или удержание курьеру за период: к заказам не привязано. */
+export interface CourierAdjustment {
+  id: string;
+  courierId: string | null;
+  shipoxDriverId: string | null;
+  courierName: string;
+  /** Плюс — надбавка, минус — удержание. */
+  amount: string;
+  reason: string;
+  appliedAt: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export type CourierPayoutChangeKind =
+  | "PAYOUT_EDITED"
+  | "PAYOUT_RESET"
+  | "ADJUSTMENT_ADDED"
+  | "ADJUSTMENT_REMOVED";
+
+/** Строка журнала правок: кто, когда, что и почему поменял. */
+export interface CourierPayoutChange {
+  id: string;
+  kind: CourierPayoutChangeKind;
+  payoutId: string | null;
+  orderNumber: string | null;
+  adjustmentId: string | null;
+  courierId: string | null;
+  courierName: string;
+  amountBefore: string | null;
+  amountAfter: string | null;
+  reason: string;
+  changedBy: string;
+  changedAt: string;
 }
 
 export interface CourierPayoutSummaryRow extends CourierPayoutCounts {

@@ -3,28 +3,47 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Calculator, TriangleAlert } from "lucide-react";
+import { Calculator, History, Pencil, Plus, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui-kit/error-state";
 import { KpiCard } from "@/components/ui-kit/kpi-card";
+import { NumberField } from "@/components/ui-kit/number-field";
 import { Money } from "@/components/ui-kit/money";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { SelectField } from "@/components/ui-kit/select-field";
 import { useBackend } from "@/hooks/use-backend";
 import {
+  addCourierAdjustment,
+  editCourierPayout,
   getCourierPayoutSummary,
+  listCourierAdjustments,
+  listCourierPayoutChanges,
   listCourierPayouts,
+  removeCourierAdjustment,
+  resetCourierPayout,
   runCourierPayouts,
 } from "@/lib/backend/client";
 import type {
+  CourierAdjustment,
   CourierPayout,
+  CourierPayoutChange,
   CourierPayoutStatus,
   CourierPayoutSummaryRow,
 } from "@/lib/backend/types";
@@ -48,6 +67,7 @@ export default function CourierPayoutsPage() {
   const window = { from: period.from, to: period.to };
   const [running, setRunning] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [changesOpen, setChangesOpen] = useState(false);
 
   // Пустая строка — «все»: так же, как склад на отправке машин.
   const [hub, setHub] = useState("");
@@ -167,7 +187,45 @@ export default function CourierPayoutsPage() {
         header: "Начислено",
         accessorFn: (r) => r.amount,
         meta: { align: "right" },
-        cell: ({ row }) => <Money value={row.original.amount} className="font-medium" />,
+        cell: ({ row }) => (
+          <div>
+            <Money value={row.original.amount} />
+            {row.original.manual > 0 && (
+              <div
+                className="text-xs text-amber-700 dark:text-amber-400"
+                title="Суммы, проставленные руками: пересчёт их не трогает"
+              >
+                правок {formatNumber(row.original.manual)}
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: "adjustments",
+        header: "Надбавки и удержания",
+        accessorFn: (r) => r.adjustments,
+        meta: { align: "right" },
+        cell: ({ row }) =>
+          row.original.adjustments === 0 ? (
+            <span className="text-muted-foreground/50">—</span>
+          ) : (
+            <Money
+              value={row.original.adjustments}
+              className={
+                row.original.adjustments > 0
+                  ? "text-emerald-700 dark:text-emerald-400"
+                  : "text-destructive"
+              }
+            />
+          ),
+      },
+      {
+        id: "payable",
+        header: "К выплате",
+        accessorFn: (r) => r.payable,
+        meta: { align: "right" },
+        cell: ({ row }) => <Money value={row.original.payable} className="font-medium" />,
       },
     ],
     [],
@@ -190,6 +248,10 @@ export default function CourierPayoutsPage() {
         description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Период — по дате приёмки на складе или доставки. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя."
         actions={
           <>
+            <Button variant="outline" onClick={() => setChangesOpen(true)}>
+              <History className="size-4" />
+              Журнал правок
+            </Button>
             <Button variant="outline" render={<Link href="/courier-tariffs" />}>
               Тарифы курьеров
             </Button>
@@ -245,8 +307,26 @@ export default function CourierPayoutsPage() {
         <Skeleton className="h-96" />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiCard label="Начислено за период" value={formatMoneyShort(totals?.amount ?? 0)} />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <KpiCard
+              label="К выплате"
+              value={formatMoneyShort(totals?.payable ?? 0)}
+              hint="начислено по заказам плюс надбавки и удержания"
+            />
+            <KpiCard
+              label="Начислено по заказам"
+              value={formatMoneyShort(totals?.amount ?? 0)}
+              hint={
+                (totals?.manual ?? 0) > 0
+                  ? `из них поправлено руками: ${formatNumber(totals?.manual ?? 0)}`
+                  : undefined
+              }
+            />
+            <KpiCard
+              label="Надбавки и удержания"
+              value={formatMoneyShort(totals?.adjustments ?? 0)}
+              tone={(totals?.adjustments ?? 0) < 0 ? "negative" : "default"}
+            />
             <KpiCard label="Заборов" value={formatNumber(totals?.pickups ?? 0)} />
             <KpiCard label="Доставок" value={formatNumber(totals?.deliveries ?? 0)} />
             <KpiCard
@@ -290,10 +370,22 @@ export default function CourierPayoutsPage() {
         </>
       )}
 
+      <Sheet open={changesOpen} onOpenChange={setChangesOpen}>
+        <SheetContent className="w-full gap-0 overflow-y-auto data-[side=right]:sm:max-w-2xl">
+          <ChangeLog from={window.from} to={window.to} />
+        </SheetContent>
+      </Sheet>
+
       <Sheet open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
         <SheetContent className="w-full gap-0 overflow-y-auto data-[side=right]:sm:max-w-2xl">
           {detail && (
-            <PayoutDetail detail={detail} from={window.from} to={window.to} place={place} />
+            <PayoutDetail
+              detail={detail}
+              from={window.from}
+              to={window.to}
+              place={place}
+              onChanged={summary.reload}
+            />
           )}
         </SheetContent>
       </Sheet>
@@ -314,12 +406,15 @@ function PayoutDetail({
   from,
   to,
   place,
+  onChanged,
 }: {
   detail: Detail;
   from: string;
   to: string;
   /** Тот же регион и город, что в таблице: иначе суммы в панели не сойдутся. */
   place: { hub?: string; city?: string };
+  /** Деньги поправили — таблица и счётчики за панелью устарели. */
+  onChanged: () => void;
 }) {
   const query =
     detail.kind === "courier"
@@ -331,6 +426,21 @@ function PayoutDetail({
     () => listCourierPayouts({ ...query, ...place, from, to }),
     [JSON.stringify(query), from, to, place.hub, place.city],
   );
+  // Надбавки и удержания к заказам не привязаны, поэтому ни регион, ни город
+  // на них не распространяются — только курьер и период.
+  const adjustments = useBackend(
+    () =>
+      detail.kind === "courier"
+        ? listCourierAdjustments({ ...query, from, to })
+        : Promise.resolve([]),
+    [JSON.stringify(query), from, to],
+  );
+
+  const reload = () => {
+    payouts.reload();
+    adjustments.reload();
+    onChanged();
+  };
 
   return (
     <>
@@ -340,10 +450,18 @@ function PayoutDetail({
         </SheetTitle>
         <SheetDescription>
           {detail.kind === "courier"
-            ? `Заборов ${detail.row.pickups}, доставок ${detail.row.deliveries} · начислено ${formatMoneyShort(detail.row.amount)}`
+            ? `Заборов ${detail.row.pickups}, доставок ${detail.row.deliveries} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
             : `${formatNumber(detail.count)} — работа учтена, но сумма не начислена`}
         </SheetDescription>
       </SheetHeader>
+
+      {detail.kind === "courier" && (
+        <AdjustmentsBlock
+          courier={detail.row}
+          rows={adjustments.data ?? []}
+          onChanged={reload}
+        />
+      )}
 
       {payouts.error ? (
         <div className="p-4">
@@ -354,7 +472,12 @@ function PayoutDetail({
       ) : (
         <ul className="divide-y divide-border text-sm">
           {(payouts.data ?? []).map((payout) => (
-            <PayoutLine key={payout.id} payout={payout} showCourier={detail.kind === "status"} />
+            <PayoutLine
+              key={payout.id}
+              payout={payout}
+              showCourier={detail.kind === "status"}
+              onChanged={reload}
+            />
           ))}
         </ul>
       )}
@@ -362,7 +485,218 @@ function PayoutDetail({
   );
 }
 
-function PayoutLine({ payout, showCourier }: { payout: CourierPayout; showCourier: boolean }) {
+/**
+ * Надбавки и удержания курьеру за период.
+ *
+ * Премия за месяц, выход в выходной, удержание за потерянную накладную — такое
+ * не ложится ни на один заказ, поэтому идёт отдельным списком и отдельной
+ * строкой в сводке.
+ */
+function AdjustmentsBlock({
+  courier,
+  rows,
+  onChanged,
+}: {
+  courier: CourierPayoutSummaryRow;
+  rows: CourierAdjustment[];
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const remove = async (id: string) => {
+    setRemoving(id);
+    try {
+      await removeCourierAdjustment(id);
+      toast.success("Корректировка убрана — запись в журнале правок осталась");
+      onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось убрать корректировку");
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  const total = rows.reduce((sum, row) => sum + Number(row.amount), 0);
+
+  return (
+    <div className="border-b border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+        <span className="text-sm font-medium">
+          Надбавки и удержания
+          {rows.length > 0 && (
+            <Money
+              value={total}
+              className={`ml-2 text-sm font-normal ${total < 0 ? "text-destructive" : "text-emerald-700 dark:text-emerald-400"}`}
+            />
+          )}
+        </span>
+        <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+          <Plus className="size-4" />
+          Добавить
+        </Button>
+      </div>
+
+      {rows.length > 0 && (
+        <ul className="divide-y divide-border text-sm">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-start justify-between gap-3 px-4 py-2">
+              <div className="min-w-0">
+                <div>{row.reason}</div>
+                <div className="text-xs text-muted-foreground">
+                  {row.createdBy} · {formatDateTime(row.appliedAt)}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Money
+                  value={Number(row.amount)}
+                  className={
+                    Number(row.amount) < 0
+                      ? "text-destructive"
+                      : "text-emerald-700 dark:text-emerald-400"
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => remove(row.id)}
+                  disabled={removing === row.id}
+                  title="Убрать корректировку"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <AdjustmentDialog
+        open={adding}
+        onOpenChange={setAdding}
+        courier={courier}
+        onSaved={() => {
+          setAdding(false);
+          onChanged();
+        }}
+      />
+    </div>
+  );
+}
+
+/** Форма надбавки или удержания: знак суммы решает, что это. */
+function AdjustmentDialog({
+  open,
+  onOpenChange,
+  courier,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  courier: CourierPayoutSummaryRow;
+  onSaved: () => void;
+}) {
+  const [kind, setKind] = useState<"bonus" | "deduction">("bonus");
+  const [amount, setAmount] = useState<number | undefined>(undefined);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!amount || reason.trim().length < 3) return;
+    setSaving(true);
+    try {
+      await addCourierAdjustment({
+        courierId: courier.courierId ?? undefined,
+        shipoxDriverId: courier.shipoxDriverId ?? undefined,
+        courierName: courier.courierName,
+        amount: kind === "bonus" ? Math.abs(amount) : -Math.abs(amount),
+        reason: reason.trim(),
+      });
+      toast.success(kind === "bonus" ? "Надбавка добавлена" : "Удержание добавлено");
+      setAmount(undefined);
+      setReason("");
+      onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Надбавка или удержание</DialogTitle>
+          <DialogDescription>
+            {courier.courierName}. К заказам не привязывается — попадёт в период по сегодняшней
+            дате и ляжет отдельной строкой в сводке.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <SelectField
+            value={kind}
+            onChange={(value) => setKind(value as "bonus" | "deduction")}
+            options={[
+              { value: "bonus", label: "Надбавка — курьеру доплатят" },
+              { value: "deduction", label: "Удержание — вычтут из выплаты" },
+            ]}
+          />
+          <NumberField label="Сумма" value={amount} onChange={setAmount} min={0} suffix="сум" />
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Причина</Label>
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="выход в выходной"
+            />
+            <p className="text-xs text-muted-foreground">
+              Её прочитает бухгалтер следующего месяца — напишите по-человечески.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" render={<DialogClose />}>
+            Отмена
+          </Button>
+          <Button onClick={save} disabled={saving || !amount || reason.trim().length < 3}>
+            {saving ? "Сохраняю…" : "Сохранить"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PayoutLine({
+  payout,
+  showCourier,
+  onChanged,
+}: {
+  payout: CourierPayout;
+  showCourier: boolean;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const byTariff = payout.calculatedAmount === null ? null : Number(payout.calculatedAmount);
+
+  const reset = async () => {
+    setResetting(true);
+    try {
+      await resetCourierPayout(payout.id);
+      toast.success("Вернули сумму по тарифу");
+      onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось вернуть расчёт");
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-4 py-2.5">
       <div className="min-w-0 space-y-0.5">
@@ -386,21 +720,206 @@ function PayoutLine({ payout, showCourier }: { payout: CourierPayout; showCourie
         {payout.order?.customerName && (
           <div className="text-xs text-muted-foreground">{payout.order.customerName}</div>
         )}
-      </div>
-      <div className="text-right">
-        {payout.status === "CALCULATED" && payout.amount !== null ? (
-          <>
-            <Money value={Number(payout.amount)} className="font-medium" />
-            {payout.rateKind && (
-              <div className="text-xs text-muted-foreground">{RATE_KIND_LABEL[payout.rateKind]}</div>
-            )}
-          </>
-        ) : (
-          <span className="text-xs text-amber-700 dark:text-amber-400">
-            {PAYOUT_STATUS_LABEL[payout.status]}
-          </span>
+        {/* Правку без причины и автора через месяц не разобрать — показываем обоих. */}
+        {payout.manual && (
+          <div className="text-xs text-amber-700 dark:text-amber-400">
+            Поправил {payout.manualBy ?? "—"}
+            {payout.manualAt ? ` · ${formatDateTime(payout.manualAt)}` : ""}
+            {byTariff !== null ? ` · по тарифу ${formatMoneyShort(byTariff)}` : ""}
+            {payout.manualReason ? ` · «${payout.manualReason}»` : ""}
+          </div>
         )}
       </div>
+      <div className="flex shrink-0 items-start gap-2">
+        <div className="text-right">
+          {payout.status === "CALCULATED" && payout.amount !== null ? (
+            <>
+              <Money value={Number(payout.amount)} className="font-medium" />
+              <div className="text-xs text-muted-foreground">
+                {payout.manual ? "поправлено вручную" : payout.rateKind ? RATE_KIND_LABEL[payout.rateKind] : ""}
+              </div>
+            </>
+          ) : (
+            <span className="text-xs text-amber-700 dark:text-amber-400">
+              {PAYOUT_STATUS_LABEL[payout.status]}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-col gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)} title="Поправить сумму">
+            <Pencil className="size-4" />
+          </Button>
+          {payout.manual && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={reset}
+              disabled={resetting}
+              title="Вернуть сумму по тарифу"
+            >
+              <RotateCcw className="size-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <EditPayoutDialog
+        open={editing}
+        onOpenChange={setEditing}
+        payout={payout}
+        onSaved={() => {
+          setEditing(false);
+          onChanged();
+        }}
+      />
     </li>
+  );
+}
+
+/**
+ * Правка суммы начисления.
+ *
+ * Тариф знает город и вес, но не знает договорённостей: заказ увезли за город,
+ * города нет в справочнике, курьеру пообещали больше. Причина обязательна, имя
+ * правившего берёт бэкенд из учётной записи — подписаться чужим именем нельзя.
+ */
+function EditPayoutDialog({
+  open,
+  onOpenChange,
+  payout,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  payout: CourierPayout;
+  onSaved: () => void;
+}) {
+  const [amount, setAmount] = useState<number | undefined>(
+    payout.amount === null ? undefined : Number(payout.amount),
+  );
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (amount === undefined || reason.trim().length < 3) return;
+    setSaving(true);
+    try {
+      await editCourierPayout(payout.id, { amount, reason: reason.trim() });
+      toast.success("Сумма поправлена — пересчёт её больше не тронет");
+      setReason("");
+      onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Сумма за {LEG_LABEL[payout.leg].toLowerCase()}</DialogTitle>
+          <DialogDescription>
+            {payout.order?.orderNumber ?? "заказ"} · {payoutCityLabel(payout)} ·{" "}
+            {formatWeight(payout.weightKg)}
+            {payout.status !== "CALCULATED" && ` · ${PAYOUT_STATUS_LABEL[payout.status]}`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <NumberField label="Сумма к выплате" value={amount} onChange={setAmount} min={0} suffix="сум" />
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Причина</Label>
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="возили за город, договорились отдельно"
+            />
+            <p className="text-xs text-muted-foreground">
+              Останется в журнале правок вместе с вашим именем.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" render={<DialogClose />}>
+            Отмена
+          </Button>
+          <Button onClick={save} disabled={saving || amount === undefined || reason.trim().length < 3}>
+            {saving ? "Сохраняю…" : "Сохранить"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Подписи видов правок — одни и те же в журнале и в подсказках. */
+const CHANGE_LABEL: Record<CourierPayoutChange["kind"], string> = {
+  PAYOUT_EDITED: "сумма поправлена",
+  PAYOUT_RESET: "возврат к тарифу",
+  ADJUSTMENT_ADDED: "надбавка или удержание",
+  ADJUSTMENT_REMOVED: "корректировка убрана",
+};
+
+/**
+ * Журнал правок по деньгам курьеров.
+ *
+ * Суммы правят руками, корректировки удаляют — по самим записям историю потом
+ * не восстановить. Журнал только дописывается: кто, когда, что и почему.
+ */
+function ChangeLog({ from, to }: { from: string; to: string }) {
+  const changes = useBackend(() => listCourierPayoutChanges({ from, to, limit: 500 }), [from, to]);
+  const rows = changes.data ?? [];
+
+  return (
+    <>
+      <SheetHeader className="border-b border-border">
+        <SheetTitle>Журнал правок</SheetTitle>
+        <SheetDescription>
+          Ручные изменения сумм, надбавки и удержания за период — с именем того, кто их внёс.
+        </SheetDescription>
+      </SheetHeader>
+
+      {changes.error ? (
+        <div className="p-4">
+          <ErrorState message={changes.error} onRetry={changes.reload} />
+        </div>
+      ) : changes.loading && !changes.data ? (
+        <Skeleton className="m-4 h-64" />
+      ) : rows.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          За период руками ничего не меняли.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border text-sm">
+          {rows.map((row) => (
+            <li key={row.id} className="space-y-0.5 px-4 py-2.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span className="font-medium">{row.courierName}</span>
+                <span className="text-xs text-muted-foreground">
+                  {row.changedBy} · {formatDateTime(row.changedAt)}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+                <Badge variant="secondary">{CHANGE_LABEL[row.kind]}</Badge>
+                {row.orderNumber && (
+                  <Link href={`/orders/${row.orderNumber}`} className="tabular-nums hover:underline">
+                    {row.orderNumber}
+                  </Link>
+                )}
+                <span className="tabular-nums">
+                  {row.amountBefore !== null ? formatMoneyShort(Number(row.amountBefore)) : "—"}
+                  {" → "}
+                  {row.amountAfter !== null ? formatMoneyShort(Number(row.amountAfter)) : "—"}
+                </span>
+              </div>
+              <div className="text-xs">«{row.reason}»</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
