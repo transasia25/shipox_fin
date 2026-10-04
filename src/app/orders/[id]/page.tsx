@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/ui-kit/error-state";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { useBackend } from "@/hooks/use-backend";
 import { getOrder } from "@/lib/backend/client";
+import type { OrderEvent } from "@/lib/backend/types";
 import { formatDate, formatDateTime, formatNumber, formatWeight, plural } from "@/lib/format";
 import { legLabel } from "@/lib/transit";
 import {
@@ -23,6 +24,13 @@ import {
   pickupReceipt,
 } from "@/lib/courier-payouts";
 import { cn } from "@/lib/utils";
+
+/** Подписи видов изменений в ленте заказа. */
+const EVENT_LABEL: Record<OrderEvent["kind"], string> = {
+  STATUS: "статус",
+  COURIER: "курьер",
+  WAREHOUSE: "склад",
+};
 
 export default function OrderDetailPage({ params }: PageProps<"/orders/[id]">) {
   const { id } = use(params);
@@ -290,6 +298,49 @@ export default function OrderDetailPage({ params }: PageProps<"/orders/[id]">) {
                       <span className="text-xs text-amber-700 dark:text-amber-400">
                         {leg.detachedFromTripId ? "слетел с рейса — распределите заново" : "не распределено"}
                       </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">История заказа</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Как менялись статус, курьер и склад. Shipox отдаёт только текущее состояние, поэтому
+            лента собирается выгрузкой: время — то, которое вернул Shipox.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {order.events.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Изменений пока не было — заказ в том же состоянии, в каком попал в базу.
+            </p>
+          ) : (
+            <ul className="space-y-0 text-sm">
+              {order.events.map((event) => (
+                <li key={event.id} className="flex gap-3 py-2">
+                  <div className="w-36 shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {formatDateTime(event.changedAt)}
+                  </div>
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <Badge variant="secondary">{EVENT_LABEL[event.kind]}</Badge>
+                      <span className="font-medium">{event.toLabel ?? event.toValue}</span>
+                      {event.fromValue && (
+                        <span className="text-xs text-muted-foreground">
+                          было: {event.fromValue}
+                        </span>
+                      )}
+                    </div>
+                    {event.source === "INITIAL" && (
+                      <div className="text-xs text-muted-foreground">
+                        состояние на момент первой выгрузки
+                      </div>
                     )}
                   </div>
                 </li>

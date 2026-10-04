@@ -58,9 +58,25 @@ export interface OrderReceipt extends ReceiptSummary {
 }
 
 /** Карточка заказа: всё, что лежит в базе, включая сырой ответ Shipox. */
+/** Что поменялось у заказа: статус, курьер или склад. */
+export interface OrderEvent {
+  id: string;
+  kind: "STATUS" | "COURIER" | "WAREHOUSE";
+  fromValue: string | null;
+  toValue: string;
+  toLabel: string | null;
+  /** Когда изменение произошло по данным Shipox. */
+  changedAt: string;
+  /** Когда его заметила выгрузка. */
+  noticedAt: string;
+  source: "SYNC" | "INITIAL" | "MANUAL";
+}
+
 export interface ShipoxOrderDetail extends Omit<ShipoxOrderRow, "receipts"> {
   /** Все приёмки, включая отменённые, от ранней к поздней. */
   receipts: OrderReceipt[];
+  /** История изменений заказа, от ранних к поздним. */
+  events: OrderEvent[];
   /** Начисления курьерам за забор и доставку. */
   courierPayouts: CourierPayout[];
   /** Плечи межгородней перевозки по порядку. */
