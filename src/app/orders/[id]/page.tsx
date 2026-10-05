@@ -337,11 +337,15 @@ export default function OrderDetailPage({ params }: PageProps<"/orders/[id]">) {
                         </span>
                       )}
                     </div>
-                    {event.source === "INITIAL" && (
-                      <div className="text-xs text-muted-foreground">
-                        состояние на момент первой выгрузки
-                      </div>
-                    )}
+                    <div className="text-xs text-muted-foreground">
+                      {event.source === "INITIAL"
+                        ? "состояние на момент первой выгрузки"
+                        : event.source === "WEBHOOK"
+                          ? "пришло сразу из Shipox"
+                          : event.source === "SYNC"
+                            ? "замечено выгрузкой"
+                            : "поставлено руками"}
+                    </div>
                   </div>
                 </li>
               ))}

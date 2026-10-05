@@ -69,7 +69,8 @@ export interface OrderEvent {
   changedAt: string;
   /** Когда его заметила выгрузка. */
   noticedAt: string;
-  source: "SYNC" | "INITIAL" | "MANUAL";
+  /** Откуда узнали: вебхук приходит мгновенно, выгрузка — досчитывает. */
+  source: "WEBHOOK" | "SYNC" | "INITIAL" | "MANUAL";
 }
 
 export interface ShipoxOrderDetail extends Omit<ShipoxOrderRow, "receipts"> {
