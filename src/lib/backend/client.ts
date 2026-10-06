@@ -42,7 +42,7 @@ import type {
   ScanJournalRow,
   ScanSummary,
   TransitDirection,
-  TransitLegStats,
+  TransitRunStats,
   TransitLoadResult,
   TransitLoadScan,
   TransitProblem,
@@ -591,11 +591,11 @@ export function listReadyRuns(query: {
   return request("/transit/ready", { params: query });
 }
 
-/** Сколько заказов проехало каждым плечом за период — по дате ухода в транзит. */
-export function listTransitLegStats(
+/** Сколько заказов везёт каждый рейс за период — по дате ухода в транзит. */
+export function listTransitRunStats(
   period: { from?: string; to?: string } = {},
-): Promise<TransitLegStats> {
-  return request("/transit/legs/stats", { params: period });
+): Promise<TransitRunStats> {
+  return request("/transit/runs/stats", { params: period });
 }
 
 export function listTransitProblems(): Promise<TransitProblem[]> {

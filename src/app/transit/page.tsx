@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowRight, RefreshCw, TriangleAlert, Trash2, X } from "lucide-react";
+import { ArrowRight, ChevronRight, RefreshCw, TriangleAlert, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +37,7 @@ import {
   getTransitSummary,
   listDetachedLegs,
   listPendingLegGroups,
-  listTransitLegStats,
+  listTransitRunStats,
   listTransitProblems,
   listTransitTrips,
   rebuildTransitLegs,
@@ -46,6 +46,7 @@ import type { TransitSummary, TransitTrip } from "@/lib/backend/types";
 import { formatDate, formatDateTime, formatNumber, formatWeight } from "@/lib/format";
 import { CARRIER_KIND_LABEL, legLabel, shortWarehouse, TRANSIT_PROBLEM_LABEL } from "@/lib/transit";
 import { useFinanceStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 type CarrierRow = TransitSummary["carriers"][number];
 
@@ -54,9 +55,11 @@ export default function TransitPage() {
   const window = { from: period.from, to: period.to };
   const [rebuilding, setRebuilding] = useState(false);
   const [openTrip, setOpenTrip] = useState<TransitTrip | null>(null);
+  /** Раскрытый рейс: внутри него видно развозку по ПВЗ. */
+  const [openRun, setOpenRun] = useState<string | null>(null);
 
   const summary = useBackend(() => getTransitSummary(window), [window.from, window.to]);
-  const legStats = useBackend(() => listTransitLegStats(window), [window.from, window.to]);
+  const runStats = useBackend(() => listTransitRunStats(window), [window.from, window.to]);
   const pending = useBackend(() => listPendingLegGroups(), []);
   const problems = useBackend(() => listTransitProblems(), []);
   const detached = useBackend(() => listDetachedLegs(), []);
@@ -191,26 +194,26 @@ export default function TransitPage() {
       <Card className="gap-0 py-0">
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
           <div>
-            <div className="text-base font-medium">Плечи: сколько заказов проехало</div>
+            <div className="text-base font-medium">Рейсы: сколько заказов везут</div>
             <p className="text-sm text-muted-foreground">
-              Заказ попадает в период по дате, когда ушёл в транзит. С пересадкой считается на
-              каждом плече — это работа двух машин.
+              Ход машины целиком. Заказ попадает в период по дате, когда ушёл в транзит; нажмите
+              на строку — покажет развозку по ПВЗ внутри рейса.
             </p>
           </div>
-          {legStats.data && (
+          {runStats.data && (
             <div className="text-sm text-muted-foreground">
-              {formatNumber(legStats.data.orders)} заказов ушло в транзит
+              {formatNumber(runStats.data.orders)} заказов ушло в транзит
             </div>
           )}
         </div>
 
-        {legStats.error ? (
+        {runStats.error ? (
           <div className="p-4">
-            <ErrorState message={legStats.error} onRetry={legStats.reload} />
+            <ErrorState message={runStats.error} onRetry={runStats.reload} />
           </div>
-        ) : legStats.loading && !legStats.data ? (
+        ) : runStats.loading && !runStats.data ? (
           <Skeleton className="m-4 h-48" />
-        ) : (legStats.data?.legs.length ?? 0) === 0 ? (
+        ) : (runStats.data?.runs.length ?? 0) === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">
             За период заказы в транзит не уходили. История статусов ведётся с 28.09 — за более
             ранние периоды данных нет.
@@ -220,39 +223,71 @@ export default function TransitPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-muted-foreground">
                 <tr className="border-b border-border">
-                  <th className="px-4 py-2 text-left font-medium">Направление</th>
-                  <th className="px-2 py-2 text-left font-medium">Плечо</th>
+                  <th className="px-4 py-2 text-left font-medium">Рейс</th>
                   <th className="px-2 py-2 text-right font-medium">Заказов</th>
                   <th className="px-2 py-2 text-right font-medium">Мест</th>
                   <th className="px-4 py-2 text-right font-medium">Вес</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {(legStats.data?.legs ?? []).map((leg) => (
-                  <tr key={`${leg.route?.id}-${leg.direction}-${leg.fromWarehouse}-${leg.toWarehouse}`}>
-                    <td className="px-4 py-2 whitespace-nowrap">
-                      <Badge variant="secondary">{leg.route?.code ?? "?"}</Badge>
-                      <span className="ml-1.5 text-xs text-muted-foreground">
-                        {leg.direction === "FORWARD" ? "туда" : "обратно"}
-                      </span>
-                    </td>
-                    <td
-                      className="px-2 py-2"
-                      title={`${leg.fromWarehouse} → ${leg.toWarehouse}`}
-                    >
-                      {legLabel(leg.fromWarehouse, leg.toWarehouse)}
-                    </td>
-                    <td className="px-2 py-2 text-right font-medium tabular-nums">
-                      {formatNumber(leg.orders)}
-                    </td>
-                    <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
-                      {formatNumber(leg.pieces)}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
-                      {formatWeight(leg.weightKg)}
-                    </td>
-                  </tr>
-                ))}
+                {(runStats.data?.runs ?? []).map((run) => {
+                  const key = `${run.route?.id}-${run.direction}`;
+                  const open = openRun === key;
+                  return (
+                    <Fragment key={key}>
+                      <tr
+                        className="cursor-pointer hover:bg-accent/40"
+                        onClick={() => setOpenRun(open ? null : key)}
+                      >
+                        <td className="px-4 py-2">
+                          <span className="flex items-center gap-2">
+                            <ChevronRight
+                              className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")}
+                            />
+                            <Badge variant="secondary">{run.route?.code ?? "?"}</Badge>
+                            <span
+                              className="font-medium"
+                              title={`${run.fromWarehouse} → ${run.toWarehouse}`}
+                            >
+                              {legLabel(run.fromWarehouse, run.toWarehouse)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {run.direction === "FORWARD" ? "туда" : "обратно"}
+                            </span>
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right font-medium tabular-nums">
+                          {formatNumber(run.orders)}
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                          {formatNumber(run.pieces)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                          {formatWeight(run.weightKg)}
+                        </td>
+                      </tr>
+
+                      {open &&
+                        run.stops.map((stop) => (
+                          <tr key={`${key}-${stop.warehouse}`} className="bg-muted/40 text-xs">
+                            <td className="py-1.5 pr-2 pl-12" title={stop.warehouse}>
+                              {run.direction === "FORWARD" ? "сходят в" : "грузятся в"}{" "}
+                              {shortWarehouse(stop.warehouse)}
+                            </td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">
+                              {formatNumber(stop.orders)}
+                            </td>
+                            <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
+                              {formatNumber(stop.pieces)}
+                            </td>
+                            <td className="px-4 py-1.5 text-right tabular-nums text-muted-foreground">
+                              {formatWeight(stop.weightKg)}
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
