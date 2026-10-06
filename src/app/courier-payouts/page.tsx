@@ -245,7 +245,7 @@ export default function CourierPayoutsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Начисления курьерам"
-        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Период — по дате приёмки на складе или доставки. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя."
+        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по дате приёмки на складе или доставки. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя."
         actions={
           <>
             <Button variant="outline" onClick={() => setChangesOpen(true)}>
@@ -712,7 +712,8 @@ function PayoutLine({
         <div className="text-xs text-muted-foreground">
           {[
             payoutCityLabel(payout),
-            formatWeight(payout.weightKg),
+            // Вес здесь оплачиваемый — по нему и выбрана ставка.
+            `${formatWeight(payout.weightKg)} опл.`,
             PAYOUT_SOURCE_LABEL[payout.source],
             formatDateTime(payout.earnedAt),
           ].join(" · ")}

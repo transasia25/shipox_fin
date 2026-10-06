@@ -41,7 +41,7 @@ export default function CourierTariffsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Тарифы курьеров"
-        description="Ставка за каждый заказ, который курьер забрал у клиента или доставил. Хаб или район — по справочнику городов в Supabase; тяжёлый заказ — по фактическому весу."
+        description="Ставка за каждый заказ, который курьер забрал у клиента или доставил. Хаб или район — по справочнику городов в Supabase; тяжёлый заказ — по оплачиваемому весу (большему из фактического и объёмного)."
         actions={
           <Button variant="outline" render={<Link href="/courier-payouts" />}>
             Начисления курьерам
@@ -87,7 +87,7 @@ function CurrentRates({ tariff }: { tariff: CourierTariff | null }) {
     { label: "Район при хабе", hint: "Angren, Olmaliq shahri, Chirchiq…", value: Number(tariff.districtRate) },
     {
       label: `От ${formatNumber(tariff.heavyFromKg)} кг`,
-      hint: "фактический вес, в городе и в районе",
+      hint: "оплачиваемый вес, в городе и в районе",
       value: Number(tariff.heavyRate),
     },
   ];
