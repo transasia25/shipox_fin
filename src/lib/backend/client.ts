@@ -1,4 +1,5 @@
 import type {
+  AssignedOrder,
   Carrier,
   CarrierInput,
   CityRef,
@@ -430,6 +431,15 @@ export function listCourierPayouts(
   } = {},
 ): Promise<CourierPayout[]> {
   return request("/courier-payouts", { params: query });
+}
+
+/**
+ * Назначенные курьеру заказы за период: сколько дали и что из этого оплачено.
+ */
+export function listAssignedOrders(
+  query: { from?: string; to?: string; courierId?: string; shipoxDriverId?: string } = {},
+): Promise<AssignedOrder[]> {
+  return request("/courier-payouts/assigned", { params: query });
 }
 
 /** Поправить сумму начисления руками. Причина обязательна. */

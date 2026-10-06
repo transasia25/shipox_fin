@@ -460,6 +460,32 @@ export interface CourierPayoutCounts {
   notPayable: number;
   cityNotFound: number;
   noTariff: number;
+  /** Сколько заказов назначено за период — считая те, за которые ещё не начислено. */
+  assigned: number;
+  /** Из них в работе: назначен, а начисления пока нет. */
+  inProgress: number;
+}
+
+/**
+ * Назначенный курьеру заказ — нагрузка, а не деньги.
+ *
+ * Попадает в период с момента назначения: из истории заказа, а где её нет —
+ * по дате заказа.
+ */
+export interface AssignedOrder {
+  orderId: string;
+  orderNumber: string;
+  customerName: string | null;
+  senderCity: string | null;
+  receiverCity: string | null;
+  status: string;
+  statusLabel: string;
+  assignedAt: string;
+  /** На какое плечо назначен: забор, доставка или оба. */
+  legs: CourierLeg[];
+  /** За какие плечи уже начислено. */
+  paidLegs: CourierLeg[];
+  amount: number;
 }
 
 /** Надбавка или удержание курьеру за период: к заказам не привязано. */

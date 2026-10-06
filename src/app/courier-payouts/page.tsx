@@ -3,7 +3,17 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Calculator, History, Pencil, Plus, RotateCcw, TriangleAlert, X } from "lucide-react";
+import {
+  Calculator,
+  ChevronDown,
+  ChevronRight,
+  History,
+  Pencil,
+  Plus,
+  RotateCcw,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +43,7 @@ import {
   addCourierAdjustment,
   editCourierPayout,
   getCourierPayoutSummary,
+  listAssignedOrders,
   listCourierAdjustments,
   listCourierPayoutChanges,
   listCourierPayouts,
@@ -41,6 +52,7 @@ import {
   runCourierPayouts,
 } from "@/lib/backend/client";
 import type {
+  AssignedOrder,
   CourierAdjustment,
   CourierPayout,
   CourierPayoutChange,
@@ -136,6 +148,26 @@ export default function CourierPayoutsPage() {
             <div className="font-medium">{row.original.courierName}</div>
             {!row.original.courierId && (
               <div className="text-xs text-amber-600 dark:text-amber-400">нет в справочнике курьеров</div>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: "assigned",
+        header: "Назначено",
+        accessorFn: (r) => r.assigned,
+        meta: { align: "right" },
+        cell: ({ row }) => (
+          <div>
+            <Count value={row.original.assigned} />
+            {/* Назначили, а начисления ещё нет: коробка в пути. */}
+            {row.original.inProgress > 0 && (
+              <div
+                className="text-xs text-muted-foreground"
+                title="Заказы назначены, но работа ещё не закрыта: забор не доехал до сортировки, доставка не завершена"
+              >
+                в работе {formatNumber(row.original.inProgress)}
+              </div>
             )}
           </div>
         ),
@@ -245,7 +277,7 @@ export default function CourierPayoutsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Начисления курьерам"
-        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя."
+        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя. Колонка «Назначено» считает нагрузку, а не деньги: заказ попадает в период с момента назначения курьера, даже если начисления за него пока нет."
         actions={
           <>
             <Button variant="outline" onClick={() => setChangesOpen(true)}>
@@ -326,6 +358,15 @@ export default function CourierPayoutsPage() {
               label="Надбавки и удержания"
               value={formatMoneyShort(totals?.adjustments ?? 0)}
               tone={(totals?.adjustments ?? 0) < 0 ? "negative" : "default"}
+            />
+            <KpiCard
+              label="Назначено заказов"
+              value={formatNumber(totals?.assigned ?? 0)}
+              hint={
+                (totals?.inProgress ?? 0) > 0
+                  ? `из них в работе: ${formatNumber(totals?.inProgress ?? 0)}`
+                  : "вся назначенная работа закрыта"
+              }
             />
             <KpiCard label="Заборов" value={formatNumber(totals?.pickups ?? 0)} />
             <KpiCard label="Доставок" value={formatNumber(totals?.deliveries ?? 0)} />
@@ -450,10 +491,14 @@ function PayoutDetail({
         </SheetTitle>
         <SheetDescription>
           {detail.kind === "courier"
-            ? `Заборов ${detail.row.pickups}, доставок ${detail.row.deliveries} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
+            ? `Назначено ${detail.row.assigned}, из них в работе ${detail.row.inProgress} · заборов ${detail.row.pickups}, доставок ${detail.row.deliveries} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
             : `${formatNumber(detail.count)} — работа учтена, но сумма не начислена`}
         </SheetDescription>
       </SheetHeader>
+
+      {detail.kind === "courier" && detail.row.assigned > 0 && (
+        <AssignedBlock courier={detail.row} from={from} to={to} />
+      )}
 
       {detail.kind === "courier" && (
         <AdjustmentsBlock
@@ -482,6 +527,122 @@ function PayoutDetail({
         </ul>
       )}
     </>
+  );
+}
+
+/**
+ * Назначенные курьеру заказы за период — сколько дали и что из этого закрыто.
+ *
+ * Деньгами здесь не считается ничего: начисление появляется, когда забор
+ * доехал до сортировки, а доставка завершена. Список нужен, чтобы видеть
+ * разницу — назначили десять, привёз пока шесть.
+ *
+ * Список подгружается по нажатию: в панели он нужен не всегда, а заказов у
+ * курьера за месяц бывает несколько сотен.
+ */
+function AssignedBlock({
+  courier,
+  from,
+  to,
+}: {
+  courier: CourierPayoutSummaryRow;
+  from: string;
+  to: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const query = courier.courierId
+    ? { courierId: courier.courierId }
+    : { shipoxDriverId: courier.shipoxDriverId ?? undefined };
+  const orders = useBackend(
+    () => (open ? listAssignedOrders({ ...query, from, to }) : Promise.resolve([])),
+    [JSON.stringify(query), from, to, open],
+  );
+
+  return (
+    <div className="border-b border-border">
+      <button
+        type="button"
+        className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-left hover:bg-muted/50"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="text-sm font-medium">
+          Назначенные заказы
+          <span className="ml-2 font-normal text-muted-foreground">
+            {formatNumber(courier.assigned)}
+            {courier.inProgress > 0 && ` · в работе ${formatNumber(courier.inProgress)}`}
+          </span>
+        </span>
+        {open ? (
+          <ChevronDown className="size-4 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="size-4 text-muted-foreground" />
+        )}
+      </button>
+
+      {open &&
+        (orders.error ? (
+          <div className="p-4">
+            <ErrorState message={orders.error} onRetry={orders.reload} />
+          </div>
+        ) : orders.data === null ? (
+          <Skeleton className="m-4 h-40" />
+        ) : (
+          <ul className="divide-y divide-border text-sm">
+            {orders.data.map((order) => (
+              <AssignedLine key={order.orderId} order={order} />
+            ))}
+          </ul>
+        ))}
+    </div>
+  );
+}
+
+function AssignedLine({ order }: { order: AssignedOrder }) {
+  const paid = order.paidLegs.length > 0;
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-4 py-2.5">
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          {order.legs.map((leg) => (
+            <Badge key={leg} variant="secondary">
+              {LEG_LABEL[leg]}
+            </Badge>
+          ))}
+          {/* Назначение в периоде было, а сейчас заказ висит на другом курьере. */}
+          {order.legs.length === 0 && <Badge variant="outline">переназначен</Badge>}
+          <Link
+            href={`/orders/${order.orderNumber}`}
+            className="font-medium tabular-nums hover:underline"
+          >
+            {order.orderNumber}
+          </Link>
+          <span className="text-xs text-muted-foreground">{order.statusLabel}</span>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {[
+            `назначен ${formatDateTime(order.assignedAt)}`,
+            [order.senderCity, order.receiverCity].filter(Boolean).join(" → "),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </div>
+        {order.customerName && (
+          <div className="text-xs text-muted-foreground">{order.customerName}</div>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        {paid ? (
+          <>
+            <Money value={order.amount} />
+            <div className="text-xs text-muted-foreground">
+              начислено: {order.paidLegs.map((leg) => LEG_LABEL[leg].toLowerCase()).join(", ")}
+            </div>
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">в работе</span>
+        )}
+      </div>
+    </li>
   );
 }
 
