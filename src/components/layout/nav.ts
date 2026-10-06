@@ -4,7 +4,6 @@ import {
   Package,
   PackageCheck,
   Coins,
-  Forklift,
   Route,
   ScanBarcode,
   ScanSearch,
@@ -23,6 +22,11 @@ import type { UserRole } from "@/lib/backend/types";
  * Дебиторка, реестры выплат и плечи заказа остаются в коде (ветка `/demo`), но
  * не выведены в меню: под них у бэкенда пока нет данных, и показывать
  * вымышленные цифры рядом с настоящими нельзя.
+ */
+/**
+ * «Отправка машин» (`/transit/dispatch`) в меню намеренно нет: водителей пока
+ * не назначают. Экран рабочий и открывается по прямой ссылке — `canOpen` в
+ * отсутствие своего пункта берёт ближайший общий, то есть «Межгород».
  */
 /** Кто видит пункт меню. Пустой список — видят все вошедшие. */
 export interface NavItem {
@@ -47,7 +51,6 @@ export const NAV: NavItem[] = [
   { href: "/orders", label: "Заказы", icon: Package },
   { href: "/warehouse/receive", label: "Приёмка на складе", icon: ScanBarcode, roles: WAREHOUSE },
   { href: "/warehouse/transit", label: "Отправка в транзит", icon: PackageCheck, roles: WAREHOUSE },
-  { href: "/transit/dispatch", label: "Отправка машин", icon: Forklift, roles: TRANSIT },
   { href: "/warehouse/scans", label: "История действий", icon: ScanSearch, roles: WAREHOUSE },
   {
     href: "/couriers",
@@ -73,7 +76,8 @@ export function navFor(role: UserRole | null | undefined): NavItem[] {
 /** Экран, с которого роль начинает рабочий день. */
 const HOME: Partial<Record<UserRole, string>> = {
   STOREKEEPER: "/warehouse/receive",
-  DISPATCHER: "/transit/dispatch",
+  // Машины пока не назначают, диспетчер начинает со статистики межгорода.
+  DISPATCHER: "/transit",
 };
 
 /** Куда вести после входа: рабочий экран роли, иначе первый доступный. */

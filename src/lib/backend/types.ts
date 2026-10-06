@@ -670,6 +670,28 @@ export interface TransitScanJournalRow extends TransitLoadScan {
 }
 
 /** Рейс, который ещё предстоит отправить: направление целиком в одну сторону. */
+/**
+ * Загрузка плеча за период: сколько заказов им проехало.
+ *
+ * Заказ с пересадкой считается на каждом своём плече, поэтому сумма по строкам
+ * больше числа заказов — это работа машин, а не пересчёт заказов.
+ */
+export interface TransitLegStat {
+  route: TransitRouteRef | null;
+  direction: TransitDirection;
+  fromWarehouse: string;
+  toWarehouse: string;
+  orders: number;
+  pieces: number;
+  weightKg: number;
+}
+
+export interface TransitLegStats {
+  /** Сколько всего заказов ушло в транзит за период. */
+  orders: number;
+  legs: TransitLegStat[];
+}
+
 /** Строка дневного листа склада: рейс отсюда и что в нём готово к погрузке. */
 export interface ReadyRun {
   route: TransitRouteRef | null;

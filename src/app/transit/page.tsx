@@ -37,6 +37,7 @@ import {
   getTransitSummary,
   listDetachedLegs,
   listPendingLegGroups,
+  listTransitLegStats,
   listTransitProblems,
   listTransitTrips,
   rebuildTransitLegs,
@@ -55,6 +56,7 @@ export default function TransitPage() {
   const [openTrip, setOpenTrip] = useState<TransitTrip | null>(null);
 
   const summary = useBackend(() => getTransitSummary(window), [window.from, window.to]);
+  const legStats = useBackend(() => listTransitLegStats(window), [window.from, window.to]);
   const pending = useBackend(() => listPendingLegGroups(), []);
   const problems = useBackend(() => listTransitProblems(), []);
   const detached = useBackend(() => listDetachedLegs(), []);
@@ -185,6 +187,77 @@ export default function TransitPage() {
           />
         </>
       )}
+
+      <Card className="gap-0 py-0">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+          <div>
+            <div className="text-base font-medium">Плечи: сколько заказов проехало</div>
+            <p className="text-sm text-muted-foreground">
+              Заказ попадает в период по дате, когда ушёл в транзит. С пересадкой считается на
+              каждом плече — это работа двух машин.
+            </p>
+          </div>
+          {legStats.data && (
+            <div className="text-sm text-muted-foreground">
+              {formatNumber(legStats.data.orders)} заказов ушло в транзит
+            </div>
+          )}
+        </div>
+
+        {legStats.error ? (
+          <div className="p-4">
+            <ErrorState message={legStats.error} onRetry={legStats.reload} />
+          </div>
+        ) : legStats.loading && !legStats.data ? (
+          <Skeleton className="m-4 h-48" />
+        ) : (legStats.data?.legs.length ?? 0) === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            За период заказы в транзит не уходили. История статусов ведётся с 28.09 — за более
+            ранние периоды данных нет.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="px-4 py-2 text-left font-medium">Направление</th>
+                  <th className="px-2 py-2 text-left font-medium">Плечо</th>
+                  <th className="px-2 py-2 text-right font-medium">Заказов</th>
+                  <th className="px-2 py-2 text-right font-medium">Мест</th>
+                  <th className="px-4 py-2 text-right font-medium">Вес</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(legStats.data?.legs ?? []).map((leg) => (
+                  <tr key={`${leg.route?.id}-${leg.direction}-${leg.fromWarehouse}-${leg.toWarehouse}`}>
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <Badge variant="secondary">{leg.route?.code ?? "?"}</Badge>
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        {leg.direction === "FORWARD" ? "туда" : "обратно"}
+                      </span>
+                    </td>
+                    <td
+                      className="px-2 py-2"
+                      title={`${leg.fromWarehouse} → ${leg.toWarehouse}`}
+                    >
+                      {legLabel(leg.fromWarehouse, leg.toWarehouse)}
+                    </td>
+                    <td className="px-2 py-2 text-right font-medium tabular-nums">
+                      {formatNumber(leg.orders)}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                      {formatNumber(leg.pieces)}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                      {formatWeight(leg.weightKg)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Card className="gap-0 py-0">
