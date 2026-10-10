@@ -154,19 +154,19 @@ export default function CourierPayoutsPage() {
       },
       {
         id: "assigned",
+        // Висит на курьере сейчас: завершённые заказы из счёта уходят.
         header: "Назначено",
-        accessorFn: (r) => r.assigned,
+        accessorFn: (r) => r.inProgress,
         meta: { align: "right" },
         cell: ({ row }) => (
           <div>
-            <Count value={row.original.assigned} />
-            {/* Назначили, а начисления ещё нет: коробка в пути. */}
-            {row.original.inProgress > 0 && (
+            <Count value={row.original.inProgress} />
+            {row.original.assigned > row.original.inProgress && (
               <div
                 className="text-xs text-muted-foreground"
-                title="Заказы назначены, но работа ещё не закрыта: забор не доехал до сортировки, доставка не завершена"
+                title="Из назначенных за период заказов часть уже закрыта: начислена или завершена"
               >
-                в работе {formatNumber(row.original.inProgress)}
+                из {formatNumber(row.original.assigned)} за период
               </div>
             )}
           </div>
@@ -277,7 +277,7 @@ export default function CourierPayoutsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Начисления курьерам"
-        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя. Колонка «Назначено» считает нагрузку, а не деньги: заказ попадает в период с момента назначения курьера, даже если начисления за него пока нет."
+        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя. Колонка «Назначено» считает нагрузку, а не деньги: сколько заказов висит на курьере — назначенные за период минус те, за которые уже начислено или которые завершены."
         actions={
           <>
             <Button variant="outline" onClick={() => setChangesOpen(true)}>
@@ -360,13 +360,11 @@ export default function CourierPayoutsPage() {
               tone={(totals?.adjustments ?? 0) < 0 ? "negative" : "default"}
             />
             <KpiCard
-              label="Назначено заказов"
-              value={formatNumber(totals?.assigned ?? 0)}
-              hint={
-                (totals?.inProgress ?? 0) > 0
-                  ? `из них в работе: ${formatNumber(totals?.inProgress ?? 0)}`
-                  : "вся назначенная работа закрыта"
-              }
+              label="Назначено, в работе"
+              value={formatNumber(totals?.inProgress ?? 0)}
+              hint={`назначено за период ${formatNumber(totals?.assigned ?? 0)}, закрыто ${formatNumber(
+                (totals?.assigned ?? 0) - (totals?.inProgress ?? 0),
+              )}`}
             />
             <KpiCard label="Заборов" value={formatNumber(totals?.pickups ?? 0)} />
             <KpiCard label="Доставок" value={formatNumber(totals?.deliveries ?? 0)} />
@@ -491,7 +489,7 @@ function PayoutDetail({
         </SheetTitle>
         <SheetDescription>
           {detail.kind === "courier"
-            ? `Назначено ${detail.row.assigned}, из них в работе ${detail.row.inProgress} · заборов ${detail.row.pickups}, доставок ${detail.row.deliveries} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
+            ? `В работе ${detail.row.inProgress} из ${detail.row.assigned} назначенных · заборов ${detail.row.pickups}, доставок ${detail.row.deliveries} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
             : `${formatNumber(detail.count)} — работа учтена, но сумма не начислена`}
         </SheetDescription>
       </SheetHeader>
@@ -568,8 +566,7 @@ function AssignedBlock({
         <span className="text-sm font-medium">
           Назначенные заказы
           <span className="ml-2 font-normal text-muted-foreground">
-            {formatNumber(courier.assigned)}
-            {courier.inProgress > 0 && ` · в работе ${formatNumber(courier.inProgress)}`}
+            в работе {formatNumber(courier.inProgress)} из {formatNumber(courier.assigned)}
           </span>
         </span>
         {open ? (
@@ -638,8 +635,12 @@ function AssignedLine({ order }: { order: AssignedOrder }) {
               начислено: {order.paidLegs.map((leg) => LEG_LABEL[leg].toLowerCase()).join(", ")}
             </div>
           </>
+        ) : order.closed ? (
+          // Заказ закрылся без начисления этому курьеру: завершён, отменён или
+          // переназначен — на нём он больше не висит.
+          <span className="text-xs text-muted-foreground">закрыт без начисления</span>
         ) : (
-          <span className="text-xs text-muted-foreground">в работе</span>
+          <span className="text-xs text-amber-700 dark:text-amber-400">в работе</span>
         )}
       </div>
     </li>
