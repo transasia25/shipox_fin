@@ -5,6 +5,7 @@ import type { CourierLeg, CourierPayoutStatus, CourierRateKind } from "@/lib/bac
 export const LEG_LABEL: Record<CourierLeg, string> = {
   PICKUP: "Забор",
   DELIVERY: "Доставка",
+  RETURN: "Возврат",
 };
 
 export const RATE_KIND_LABEL: Record<CourierRateKind, string> = {

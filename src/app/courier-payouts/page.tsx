@@ -187,6 +187,13 @@ export default function CourierPayoutsPage() {
         cell: ({ row }) => <Count value={row.original.deliveries} />,
       },
       {
+        id: "returns",
+        header: "Возвратов",
+        accessorFn: (r) => r.returns,
+        meta: { align: "right" },
+        cell: ({ row }) => <Count value={row.original.returns} />,
+      },
+      {
         id: "heavy",
         header: "Из них тяжёлых",
         accessorFn: (r) => r.heavy,
@@ -277,7 +284,7 @@ export default function CourierPayoutsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Начисления курьерам"
-        description="За забор у клиента и доставку получателю — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа. Фильтр по месту работы: у забора это город отправителя, у доставки — получателя. Колонка «Назначено» считает нагрузку, а не деньги: сколько заказов висит на курьере — назначенные за период минус те, за которые уже начислено или которые завершены."
+        description="За забор у клиента, доставку получателю и возврат — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа, у возврата — возвращение коробки отправителю (город берётся получателя: туда курьер и ездил). Фильтр по месту работы: у забора это город отправителя, у доставки — получателя. Колонка «Назначено» считает нагрузку, а не деньги: сколько заказов висит на курьере — назначенные за период минус те, за которые уже начислено или которые завершены."
         actions={
           <>
             <Button variant="outline" onClick={() => setChangesOpen(true)}>
@@ -368,6 +375,11 @@ export default function CourierPayoutsPage() {
             />
             <KpiCard label="Заборов" value={formatNumber(totals?.pickups ?? 0)} />
             <KpiCard label="Доставок" value={formatNumber(totals?.deliveries ?? 0)} />
+            <KpiCard
+              label="Возвратов"
+              value={formatNumber(totals?.returns ?? 0)}
+              hint="по дате возвращения коробки"
+            />
             <KpiCard
               label="Тяжёлых заказов"
               value={formatNumber(totals?.heavy ?? 0)}
@@ -489,7 +501,7 @@ function PayoutDetail({
         </SheetTitle>
         <SheetDescription>
           {detail.kind === "courier"
-            ? `В работе ${detail.row.inProgress} из ${detail.row.assigned} назначенных · заборов ${detail.row.pickups}, доставок ${detail.row.deliveries} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
+            ? `В работе ${detail.row.inProgress} из ${detail.row.assigned} назначенных · заборов ${detail.row.pickups}, доставок ${detail.row.deliveries}, возвратов ${detail.row.returns} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
             : `${formatNumber(detail.count)} — работа учтена, но сумма не начислена`}
         </SheetDescription>
       </SheetHeader>

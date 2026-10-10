@@ -71,6 +71,9 @@ export interface OrderEvent {
   noticedAt: string;
   /** Откуда узнали: вебхук приходит мгновенно, выгрузка — досчитывает. */
   source: "WEBHOOK" | "SYNC" | "INITIAL" | "MANUAL";
+  /** С каким водителем пришло событие: Shipox присылает его вместе со статусом. */
+  courierId: string | null;
+  courierName: string | null;
 }
 
 export interface ShipoxOrderDetail extends Omit<ShipoxOrderRow, "receipts"> {
@@ -372,7 +375,7 @@ export interface ReceiptJournalRow extends Receipt {
 
 // ──────────────────────── Тариф и начисления курьерам ────────────────────────
 
-export type CourierLeg = "PICKUP" | "DELIVERY";
+export type CourierLeg = "PICKUP" | "DELIVERY" | "RETURN";
 export type CourierRateKind = "CITY" | "DISTRICT" | "HEAVY";
 export type CourierPayoutStatus = "CALCULATED" | "CITY_NOT_FOUND" | "NOT_PAYABLE" | "NO_TARIFF";
 
@@ -460,6 +463,8 @@ export interface CourierPayoutCounts {
   notPayable: number;
   cityNotFound: number;
   noTariff: number;
+  /** Возвраты: курьер забрал коробку у получателя и отправил назад. */
+  returns: number;
   /** Сколько заказов назначили за период — вместе с уже закрытыми. */
   assigned: number;
   /** Из них висит на курьере сейчас: не начислено и не завершено. */

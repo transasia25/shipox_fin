@@ -331,6 +331,15 @@ export default function OrderDetailPage({ params }: PageProps<"/orders/[id]">) {
                     <div className="flex flex-wrap items-baseline gap-2">
                       <Badge variant="secondary">{EVENT_LABEL[event.kind]}</Badge>
                       <span className="font-medium">{event.toLabel ?? event.toValue}</span>
+                      {/* Водителя Shipox присылает вместе со статусом — по нему
+                          и видно, кто вёз возврат или доставку. У события про
+                          курьера он и так в значении, второй раз не пишем. */}
+                      {event.kind !== "COURIER" && event.courierName && (
+                        <span className="text-xs">
+                          курьер:{" "}
+                          <span className="font-medium">{event.courierName}</span>
+                        </span>
+                      )}
                       {event.fromValue && (
                         <span className="text-xs text-muted-foreground">
                           было: {event.fromValue}
