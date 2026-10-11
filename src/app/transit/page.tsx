@@ -28,6 +28,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui-kit/error-state";
 import { KpiCard } from "@/components/ui-kit/kpi-card";
+import { Money } from "@/components/ui-kit/money";
+import { NumberField } from "@/components/ui-kit/number-field";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { useBackend } from "@/hooks/use-backend";
 import {
@@ -39,10 +41,12 @@ import {
   listPendingLegGroups,
   listTransitRunStats,
   listTransitProblems,
+  listTransitRoutes,
   listTransitTrips,
   rebuildTransitLegs,
+  setRouteCost,
 } from "@/lib/backend/client";
-import type { TransitSummary, TransitTrip } from "@/lib/backend/types";
+import type { TransitRoute, TransitSummary, TransitTrip } from "@/lib/backend/types";
 import { formatDate, formatDateTime, formatNumber, formatWeight } from "@/lib/format";
 import { CARRIER_KIND_LABEL, legLabel, shortWarehouse, TRANSIT_PROBLEM_LABEL } from "@/lib/transit";
 import { useFinanceStore } from "@/lib/store";
@@ -190,6 +194,8 @@ export default function TransitPage() {
           />
         </>
       )}
+
+      <RouteCosts />
 
       <Card className="gap-0 py-0">
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
@@ -671,5 +677,149 @@ function TripDetail({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * Ставки за рейс по направлениям.
+ *
+ * По ним считается расход на межгород в производственной прибыли на дашборде.
+ * Истории ставок нет: правка меняет и прошлые периоды — так и задумано, пока
+ * цифры уточняются.
+ */
+function RouteCosts() {
+  const routes = useBackend(() => listTransitRoutes(), []);
+  const [editing, setEditing] = useState<{ route: TransitRoute; reverse: boolean } | null>(null);
+
+  return (
+    <Card className="gap-0 py-0">
+      <div className="border-b border-border px-4 py-3">
+        <div className="text-base font-medium">Ставки за рейс</div>
+        <p className="text-sm text-muted-foreground">
+          Сколько платим перевозчику за один ход машины. По ним считается расход на межгород в
+          прибыли; правка пересчитывает и прошлые периоды.
+        </p>
+      </div>
+
+      {routes.error ? (
+        <div className="p-4">
+          <ErrorState message={routes.error} onRetry={routes.reload} />
+        </div>
+      ) : routes.data === null ? (
+        <Skeleton className="m-4 h-28" />
+      ) : (
+        <ul className="divide-y divide-border text-sm">
+          {routes.data.map((route) => (
+            <li key={route.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+              <div className="min-w-0">
+                <div className="font-medium">
+                  {route.code} · {route.name}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {shortWarehouse(route.stops[0] ?? "")} →{" "}
+                  {shortWarehouse(route.stops.at(-1) ?? "")}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                {[false, true].map((reverse) => (
+                  <button
+                    key={reverse ? "reverse" : "forward"}
+                    type="button"
+                    className="text-right hover:underline"
+                    onClick={() => setEditing({ route, reverse })}
+                  >
+                    <div className="text-xs text-muted-foreground">
+                      {reverse ? "обратно" : "туда"}
+                    </div>
+                    <Money
+                      value={Number(reverse ? route.tripCostReverse : route.tripCostForward)}
+                      className="font-medium"
+                    />
+                  </button>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {editing && (
+        <RouteCostDialog
+          route={editing.route}
+          reverse={editing.reverse}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            routes.reload();
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+function RouteCostDialog({
+  route,
+  reverse,
+  onClose,
+  onSaved,
+}: {
+  route: TransitRoute;
+  reverse: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const current = Number(reverse ? route.tripCostReverse : route.tripCostForward);
+  // Поле умеет быть пустым, поэтому значение необязательное.
+  const [amount, setAmount] = useState<number | undefined>(current);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await setRouteCost(
+        route.id,
+        reverse ? { tripCostReverse: amount ?? 0 } : { tripCostForward: amount ?? 0 },
+      );
+      toast.success("Ставка сохранена — прибыль пересчитается");
+      onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить ставку");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {route.code}: ставка {reverse ? "обратно" : "туда"}
+          </DialogTitle>
+          <DialogDescription>
+            Сколько платим перевозчику за один рейс по этому направлению.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-1.5">
+          <NumberField
+            label="Ставка за рейс"
+            value={amount}
+            onChange={setAmount}
+            min={0}
+            step={100000}
+            suffix="сум"
+          />
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline">Отмена</Button>} />
+          <Button onClick={save} disabled={saving || amount === undefined || amount === current}>
+            {saving ? "Сохраняю…" : "Сохранить"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

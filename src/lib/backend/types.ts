@@ -140,6 +140,56 @@ export interface PricingSummary {
   };
 }
 
+/**
+ * Производственная прибыль за период.
+ *
+ * Выручка — по дате доставки, расход на курьеров — по дате начисления,
+ * межгород — по числу рейсов и ставкам направлений. Топлива, аренды и зарплат
+ * в системе нет, поэтому это производственная, а не чистая прибыль.
+ */
+export interface FinanceProfit {
+  totals: {
+    revenue: number;
+    /** Часть выручки по тарифу по умолчанию — предварительная. */
+    revenueProvisional: number;
+    pricedOrders: number;
+    courierCost: number;
+    courierPickups: number;
+    courierDeliveries: number;
+    courierReturns: number;
+    /** Надбавки и удержания курьерам, со знаком. */
+    adjustments: number;
+    transitCost: number;
+    transitRuns: number;
+    profit: number;
+    /** Доля прибыли в выручке, в процентах. */
+    margin: number;
+  };
+  series: Array<{
+    bucket: string;
+    revenue: number;
+    courierCost: number;
+    transitCost: number;
+  }>;
+  runs: Array<{
+    routeId: string;
+    routeCode: string;
+    routeName: string;
+    direction: TransitDirection;
+    runs: number;
+    rate: number;
+    cost: number;
+  }>;
+  clients: Array<{
+    customerId: string;
+    customerName: string;
+    revenue: number;
+    courierCost: number;
+    profit: number;
+    margin: number;
+  }>;
+}
+
 export interface UnmatchedClient {
   shipoxCustomerId: string;
   shipoxCustomerName: string;
@@ -599,6 +649,9 @@ export interface TransitRouteRef {
 export interface TransitRoute extends TransitRouteRef {
   /** Склады по порядку следования. */
   stops: string[];
+  /** Сколько платим перевозчику за один рейс туда и обратно. */
+  tripCostForward: string;
+  tripCostReverse: string;
   active: boolean;
   carriers: Array<{ id: string; name: string }>;
   _count: { legs: number; trips: number };

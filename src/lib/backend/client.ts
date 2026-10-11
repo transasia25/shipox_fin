@@ -2,6 +2,7 @@ import type {
   AssignedOrder,
   Carrier,
   CarrierInput,
+  FinanceProfit,
   CityRef,
   Courier,
   CourierAdjustment,
@@ -224,7 +225,23 @@ export interface PricingPeriod extends Params {
   to?: string;
 }
 
-export function getPricingSummary(period: PricingPeriod = {}): Promise<PricingSummary> {
+/** Производственная прибыль за период: выручка, расходы, прибыль. */
+export function getProfit(period: PricingPeriod = {}): Promise<FinanceProfit> {
+  return request("/finance/profit", { params: period });
+}
+
+/** Ставка за рейс по направлению — по ней считается расход на межгород. */
+export function setRouteCost(
+  id: string,
+  body: { tripCostForward?: number; tripCostReverse?: number },
+): Promise<TransitRoute> {
+  return request(`/transit/routes/${encodeURIComponent(id)}/cost`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Направления и их остановки. */export function getPricingSummary(period: PricingPeriod = {}): Promise<PricingSummary> {
   return request("/pricing/summary", { params: period });
 }
 

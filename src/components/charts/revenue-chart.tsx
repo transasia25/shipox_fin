@@ -15,20 +15,34 @@ export interface WeekPoint {
   label: string;
   revenue: number;
   payouts: number;
+  /** Прибыль за тот же отрезок. Пусто — линия прибыли не рисуется. */
+  profit?: number;
 }
 
 /**
- * Выручка и выплаты по неделям.
+ * Выручка, расходы и прибыль по отрезкам времени.
  *
- * Обе величины — деньги в сумах, поэтому лежат на одной оси: вторая шкала
- * рисовала бы несуществующую корреляцию. Расстояние между линиями и есть маржа.
+ * Все величины — деньги в сумах, поэтому лежат на одной оси: вторая шкала
+ * рисовала бы несуществующую корреляцию. Расстояние между выручкой и расходами
+ * и есть прибыль, а линия прибыли показывает её сразу, не заставляя считать
+ * глазами.
  */
-export function RevenueChart({ data }: { data: WeekPoint[] }) {
+export function RevenueChart({
+  data,
+  costLabel = "Начислено курьерам",
+}: {
+  data: WeekPoint[];
+  /** Подпись расходов: на дашборде это курьеры вместе с межгородом. */
+  costLabel?: string;
+}) {
+  const withProfit = data.some((point) => point.profit !== undefined);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-4 text-sm">
         <LegendItem color="var(--viz-series-1)" label="Начислено клиентам" />
-        <LegendItem color="var(--viz-series-2)" label="Начислено курьерам" />
+        <LegendItem color="var(--viz-series-2)" label={costLabel} />
+        {withProfit && <LegendItem color="var(--viz-series-3)" label="Прибыль" />}
       </div>
 
       <div className="h-64 w-full">
@@ -65,12 +79,23 @@ export function RevenueChart({ data }: { data: WeekPoint[] }) {
             <Line
               type="monotone"
               dataKey="payouts"
-              name="Начислено курьерам"
+              name={costLabel}
               stroke="var(--viz-series-2)"
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 4 }}
             />
+            {withProfit && (
+              <Line
+                type="monotone"
+                dataKey="profit"
+                name="Прибыль"
+                stroke="var(--viz-series-3)"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -106,16 +131,18 @@ function ChartTooltip({
   if (!active || !payload?.length) return null;
   const revenue = payload.find((p) => p.dataKey === "revenue")?.value ?? 0;
   const payouts = payload.find((p) => p.dataKey === "payouts")?.value ?? 0;
+  const profit = payload.find((p) => p.dataKey === "profit")?.value;
+  const costName = payload.find((p) => p.dataKey === "payouts")?.name ?? "Расходы";
 
   return (
     <div className="rounded-lg border border-border bg-popover px-3 py-2 text-sm shadow-md">
       <div className="mb-1 font-medium">{label}</div>
       <dl className="space-y-0.5">
         <Line2 color="var(--viz-series-1)" label="Клиентам" value={revenue} />
-        <Line2 color="var(--viz-series-2)" label="Курьерам" value={payouts} />
+        <Line2 color="var(--viz-series-2)" label={costName} value={payouts} />
         <div className="mt-1 flex justify-between gap-6 border-t border-border pt-1">
-          <dt className="text-muted-foreground">Маржа</dt>
-          <dd className="tabular-nums">{formatMoney(revenue - payouts)}</dd>
+          <dt className="text-muted-foreground">{profit === undefined ? "Маржа" : "Прибыль"}</dt>
+          <dd className="tabular-nums">{formatMoney(profit ?? revenue - payouts)}</dd>
         </div>
       </dl>
     </div>
