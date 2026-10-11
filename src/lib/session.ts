@@ -88,6 +88,7 @@ export const ROLE_LABEL: Record<UserRole, string> = {
   STOREKEEPER: "Кладовщик",
   ACCOUNTANT: "Бухгалтер",
   VIEWER: "Наблюдатель",
+  BRANCH: "Сотрудник ПВЗ",
 };
 
 /** Наблюдатель только смотрит: кнопки сохранения ему недоступны. */

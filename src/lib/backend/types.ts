@@ -938,7 +938,14 @@ export interface OrderTransitLeg {
 }
 
 /** Роль сотрудника: от неё зависят доступные экраны и действия. */
-export type UserRole = "ADMIN" | "DISPATCHER" | "STOREKEEPER" | "ACCOUNTANT" | "VIEWER";
+export type UserRole =
+  | "ADMIN"
+  | "DISPATCHER"
+  | "STOREKEEPER"
+  | "ACCOUNTANT"
+  | "VIEWER"
+  /** Сотрудник ПВЗ: начисления курьерам своего региона за текущий месяц. */
+  | "BRANCH";
 
 /** Кто вошёл. Имя подписывает приёмки, сканы и рейсы. */
 export interface Session {
@@ -948,6 +955,8 @@ export interface Session {
   role: UserRole;
   /** Склад кладовщика. У офиса пусто — он работает с любым. */
   warehouse: string | null;
+  /** Регион сотрудника ПВЗ: начисления он видит и правит только по нему. */
+  hub: string | null;
 }
 
 /** Сотрудник в справочнике администратора. */

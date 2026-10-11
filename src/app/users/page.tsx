@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { KeyRound, Plus, UserCog } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import { SelectField } from "@/components/ui-kit/select-field";
 import { useBackend } from "@/hooks/use-backend";
 import {
   createUser,
+  listTariffCities,
   listUsers,
   listWarehouses,
   setUserPassword,
@@ -33,6 +34,7 @@ const ROLE_HINT: Record<UserRole, string> = {
   STOREKEEPER: "Приёмка и отправка на своём складе",
   ACCOUNTANT: "Курьеры, тарифы, начисления, выгрузки",
   VIEWER: "Только просмотр",
+  BRANCH: "Начисления своим курьерам за текущий месяц",
 };
 
 const ROLE_OPTIONS = (Object.keys(ROLE_LABEL) as UserRole[]).map((role) => ({
@@ -43,8 +45,26 @@ const ROLE_OPTIONS = (Object.keys(ROLE_LABEL) as UserRole[]).map((role) => ({
 export default function UsersPage() {
   const users = useBackend(() => listUsers(), []);
   const warehouses = useBackend(() => listWarehouses(), []);
+  const cities = useBackend(() => listTariffCities(), []);
   const [adding, setAdding] = useState(false);
   const [password, setPassword] = useState<User | null>(null);
+
+  // Регионы берём из справочника городов: там же, откуда их знают начисления.
+  const hubOptions = useMemo(
+    () => [
+      { value: "", label: "— без региона —" },
+      ...Array.from(
+        new Set(
+          (cities.data ?? [])
+            .map((city) => (city.isHub ? city.name : city.hubName))
+            .filter((hub): hub is string => Boolean(hub)),
+        ),
+      )
+        .sort((a, b) => a.localeCompare(b))
+        .map((hub) => ({ value: hub, label: hub })),
+    ],
+    [cities.data],
+  );
 
   const warehouseOptions = [
     { value: "", label: "Без склада (офис)" },
@@ -109,12 +129,23 @@ export default function UsersPage() {
                     />
                   </td>
                   <td className="px-2 py-2">
-                    <SelectField
-                      value={user.warehouse ?? ""}
-                      onChange={(warehouse) => void patch(user, { warehouse: warehouse || null })}
-                      className="min-w-56"
-                      options={warehouseOptions}
-                    />
+                    {/* Кладовщику нужен склад, сотруднику ПВЗ — регион. */}
+                    {user.role === "BRANCH" ? (
+                      <SelectField
+                        value={user.hub ?? ""}
+                        onChange={(hub) => void patch(user, { hub: hub || null })}
+                        className="min-w-56"
+                        placeholder="Выберите регион"
+                        options={hubOptions}
+                      />
+                    ) : (
+                      <SelectField
+                        value={user.warehouse ?? ""}
+                        onChange={(warehouse) => void patch(user, { warehouse: warehouse || null })}
+                        className="min-w-56"
+                        options={warehouseOptions}
+                      />
+                    )}
                   </td>
                   <td className="px-2 py-2 text-xs text-muted-foreground">
                     {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : "ни разу"}
@@ -147,6 +178,7 @@ export default function UsersPage() {
       <AddUserDialog
         open={adding}
         warehouses={warehouseOptions}
+        hubs={hubOptions}
         onClose={() => setAdding(false)}
         onCreated={() => {
           setAdding(false);
@@ -162,11 +194,13 @@ export default function UsersPage() {
 function AddUserDialog({
   open,
   warehouses,
+  hubs,
   onClose,
   onCreated,
 }: {
   open: boolean;
   warehouses: Array<{ value: string; label: string }>;
+  hubs: Array<{ value: string; label: string }>;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -174,13 +208,21 @@ function AddUserDialog({
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("STOREKEEPER");
   const [warehouse, setWarehouse] = useState("");
+  const [hub, setHub] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
     setBusy(true);
     try {
-      await createUser({ login, name, role, password, warehouse: warehouse || null });
+      await createUser({
+        login,
+        name,
+        role,
+        password,
+        warehouse: warehouse || null,
+        hub: hub || null,
+      });
       toast.success(`${name} заведён — передайте ему логин и пароль`);
       setLogin("");
       setName("");
@@ -243,6 +285,21 @@ function AddUserDialog({
               />
               <p className="text-xs text-muted-foreground">
                 Кладовщик принимает и отправляет только со своего склада.
+              </p>
+            </div>
+          )}
+          {role === "BRANCH" && (
+            <div className="space-y-1.5">
+              <Label>Регион</Label>
+              <SelectField
+                value={hub}
+                onChange={setHub}
+                placeholder="Выберите регион"
+                options={hubs.filter((item) => item.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Сотрудник ПВЗ видит и правит начисления только своего региона и только за
+                текущий месяц.
               </p>
             </div>
           )}

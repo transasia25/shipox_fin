@@ -37,6 +37,8 @@ export interface NavItem {
 }
 
 const OFFICE: UserRole[] = ["ADMIN", "ACCOUNTANT", "VIEWER"];
+/** Начисления курьерам: офис плюс сотрудник ПВЗ по своему региону. */
+const PAYOUTS: UserRole[] = [...OFFICE, "BRANCH"];
 const TRANSIT: UserRole[] = ["ADMIN", "DISPATCHER", "VIEWER"];
 const WAREHOUSE: UserRole[] = ["ADMIN", "DISPATCHER", "STOREKEEPER"];
 
@@ -48,7 +50,13 @@ export const NAV: NavItem[] = [
     icon: LayoutDashboard,
     roles: ["ADMIN", "ACCOUNTANT", "DISPATCHER", "VIEWER"],
   },
-  { href: "/orders", label: "Заказы", icon: Package },
+  // Сотруднику ПВЗ заказы не показываем: в карточке видны цены клиентов.
+  {
+    href: "/orders",
+    label: "Заказы",
+    icon: Package,
+    roles: ["ADMIN", "ACCOUNTANT", "DISPATCHER", "STOREKEEPER", "VIEWER"],
+  },
   { href: "/warehouse/receive", label: "Приёмка на складе", icon: ScanBarcode, roles: WAREHOUSE },
   { href: "/warehouse/transit", label: "Отправка в транзит", icon: PackageCheck, roles: WAREHOUSE },
   { href: "/warehouse/scans", label: "История действий", icon: ScanSearch, roles: WAREHOUSE },
@@ -58,7 +66,7 @@ export const NAV: NavItem[] = [
     icon: Truck,
     roles: ["ADMIN", "ACCOUNTANT", "DISPATCHER", "STOREKEEPER", "VIEWER"],
   },
-  { href: "/courier-payouts", label: "Начисления курьерам", icon: Wallet, roles: OFFICE },
+  { href: "/courier-payouts", label: "Начисления курьерам", icon: Wallet, roles: PAYOUTS },
   { href: "/courier-tariffs", label: "Тарифы курьеров", icon: Coins, roles: OFFICE },
   { href: "/transit", label: "Межгород", icon: Route, roles: TRANSIT },
   { href: "/carriers", label: "Перевозчики", icon: TruckElectric, roles: TRANSIT },

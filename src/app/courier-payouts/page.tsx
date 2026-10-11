@@ -67,6 +67,7 @@ import {
   payoutCityLabel,
 } from "@/lib/courier-payouts";
 import { formatDateTime, formatMoneyShort, formatNumber, formatWeight } from "@/lib/format";
+import { useSession } from "@/lib/session";
 import { useFinanceStore } from "@/lib/store";
 
 /** Что открыто в боковой панели: начисления курьера или список проблем одного вида. */
@@ -78,6 +79,10 @@ export default function CourierPayoutsPage() {
   const period = useFinanceStore((s) => s.period);
   const window = { from: period.from, to: period.to };
   const [running, setRunning] = useState(false);
+  const session = useSession();
+  /// Сотрудник ПВЗ правит начисления своего региона: пересчёт сети и тарифы
+  /// ему недоступны, а регион у него один — фильтр не нужен.
+  const branch = session.status === "signed-in" && session.user.role === "BRANCH";
   const [detail, setDetail] = useState<Detail | null>(null);
   const [changesOpen, setChangesOpen] = useState(false);
 
@@ -284,36 +289,46 @@ export default function CourierPayoutsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Начисления курьерам"
-        description="За забор у клиента, доставку получателю и возврат — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа, у возврата — возвращение коробки отправителю (город берётся получателя: туда курьер и ездил). Фильтр по месту работы: у забора это город отправителя, у доставки — получателя. Колонка «Назначено» считает нагрузку, а не деньги: сколько заказов висит на курьере — назначенные за период минус те, за которые уже начислено или которые завершены."
+        description={
+          branch
+            ? "Начисления курьерам вашего региона. Сумму можно поправить с причиной и поставить надбавку или удержание — за текущий месяц; прошлые месяцы правит бухгалтерия."
+            : "За забор у клиента, доставку получателю и возврат — по тарифу курьеров: город, район или тяжёлый заказ. Вес берётся оплачиваемый — больший из фактического и объёмного. Период — по факту работы: у забора это приезд коробки на сортировочный центр, у доставки — завершение заказа, у возврата — возвращение коробки отправителю (город берётся получателя: туда курьер и ездил). Фильтр по месту работы: у забора это город отправителя, у доставки — получателя. Колонка «Назначено» считает нагрузку, а не деньги: сколько заказов висит на курьере — назначенные за период минус те, за которые уже начислено или которые завершены."
+        }
         actions={
           <>
             <Button variant="outline" onClick={() => setChangesOpen(true)}>
               <History className="size-4" />
               Журнал правок
             </Button>
-            <Button variant="outline" render={<Link href="/courier-tariffs" />}>
-              Тарифы курьеров
-            </Button>
-            <Button onClick={recalculate} disabled={running}>
-              <Calculator className="size-4" />
-              {running ? "Пересчитываю…" : "Пересчитать"}
-            </Button>
+            {!branch && (
+              <>
+                <Button variant="outline" render={<Link href="/courier-tariffs" />}>
+                  Тарифы курьеров
+                </Button>
+                <Button onClick={recalculate} disabled={running}>
+                  <Calculator className="size-4" />
+                  {running ? "Пересчитываю…" : "Пересчитать"}
+                </Button>
+              </>
+            )}
           </>
         }
       />
 
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Регион</Label>
-            <SelectField
-              value={hub}
-              onChange={chooseHub}
-              options={hubOptions}
-              placeholder="Все регионы"
-              className="min-w-52"
-            />
-          </div>
+          {!branch && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Регион</Label>
+              <SelectField
+                value={hub}
+                onChange={chooseHub}
+                options={hubOptions}
+                placeholder="Все регионы"
+                className="min-w-52"
+              />
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Город</Label>
             <SelectField

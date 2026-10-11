@@ -339,13 +339,21 @@ export function createUser(body: {
   password: string;
   role: UserRole;
   warehouse?: string | null;
+  /** Регион сотрудника ПВЗ. */
+  hub?: string | null;
 }): Promise<User> {
   return request("/users", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function updateUser(
   id: string,
-  body: { name?: string; role?: UserRole; warehouse?: string | null; active?: boolean },
+  body: {
+    name?: string;
+    role?: UserRole;
+    warehouse?: string | null;
+    hub?: string | null;
+    active?: boolean;
+  },
 ): Promise<User> {
   return request(`/users/${encodeURIComponent(id)}`, {
     method: "PATCH",
