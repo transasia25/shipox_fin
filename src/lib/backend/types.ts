@@ -146,6 +146,29 @@ export interface UnmatchedClient {
   orders: number;
 }
 
+/**
+ * Заказ клиента со стоимостью — строка детализации счёта.
+ *
+ * `status` пуст у заказа, который ни разу не попал в расчёт; `amount` пуст и
+ * тогда, когда калькулятор не нашёл тариф — причина лежит в `error`.
+ */
+export interface PricingClientOrder {
+  orderId: string;
+  orderNumber: string;
+  createdDate: string;
+  senderCity: string | null;
+  receiverCity: string | null;
+  statusLabel: string;
+  weightKg: number;
+  boxCount: number;
+  amount: number | null;
+  status: PricingStatus | null;
+  /** Посчитан по плану по умолчанию — сумма предварительная. */
+  provisional: boolean;
+  error: string | null;
+  calculatedAt: string | null;
+}
+
 export interface PricingProblem {
   status: PricingStatus;
   error: string | null;

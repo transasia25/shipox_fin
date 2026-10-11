@@ -26,6 +26,7 @@ import type {
   OrdersStats,
   Page,
   ShipoxOrderDetail,
+  PricingClientOrder,
   PricingProblem,
   PricingRunResult,
   PricingSummary,
@@ -225,6 +226,13 @@ export interface PricingPeriod extends Params {
 
 export function getPricingSummary(period: PricingPeriod = {}): Promise<PricingSummary> {
   return request("/pricing/summary", { params: period });
+}
+
+/** Заказы одного клиента за период со стоимостью по каждому. */
+export function listClientOrders(
+  query: PricingPeriod & { customerId: string; limit?: number },
+): Promise<PricingClientOrder[]> {
+  return request("/pricing/client-orders", { params: query });
 }
 
 export function listUnmatchedClients(): Promise<UnmatchedClient[]> {
