@@ -132,7 +132,9 @@ export default function SortingFloorPage() {
                 {row.original.currentWarehouse &&
                   row.original.currentWarehouse !== row.original.warehouse && (
                     <span className="text-xs text-muted-foreground">
-                      сейчас: {shortWarehouse(row.original.currentWarehouse)}
+                      {/* Склад назначения ещё не принимал заказ: коробка в пути,
+                          и подтвердит приёмку только следующий статус. */}
+                      в пути в {shortWarehouse(row.original.currentWarehouse)}
                     </span>
                   )}
               </div>
@@ -207,7 +209,7 @@ export default function SortingFloorPage() {
     <div className="space-y-5">
       <PageHeader
         title="Склад: что лежит"
-        description="Заказы со статусом In sorting facility: что приняли на сортировку за день и что лежит прямо сейчас. Склад — тот, где коробку приняли: Shipox при отправке сразу переключает заказ на следующий хаб, поэтому уехавшие помечены отдельно. Рядом — разрезы по клиентам и складам и отметка, на каких заказах ещё нет курьера на забор или доставку."
+        description="Заказы со статусом In sorting facility: что приняли на сортировку за день и что лежит прямо сейчас. Склад — тот, где коробку приняли, а не тот, куда она едет: Shipox при отправке сразу переключает заказ на следующий хаб, и приёмку подтверждает только следующий статус. Уехавшие помечены отдельно. Рядом — разрезы по клиентам и складам и отметка, на каких заказах ещё нет курьера на забор или доставку."
       />
 
       <Card className="gap-3 p-4">
