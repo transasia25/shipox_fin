@@ -395,6 +395,7 @@ export function getSortingFloor(
   query: {
     date?: string;
     mode?: "day" | "now";
+    state?: "here" | "left";
     gap?: "pickup" | "delivery";
     warehouse?: string;
     customerId?: string;

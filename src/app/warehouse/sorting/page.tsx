@@ -23,6 +23,7 @@ import { shortWarehouse } from "@/lib/transit";
 
 type Gap = "" | "pickup" | "delivery";
 type Mode = "day" | "now";
+type State = "" | "here" | "left";
 
 /**
  * Сортировочный склад: что приняли за день и что лежит прямо сейчас.
@@ -39,6 +40,7 @@ export default function SortingFloorPage() {
   const [day, setDay] = useState(() => toDateInputValue(new Date().toISOString()));
   const [mode, setMode] = useState<Mode>("day");
   const [gap, setGap] = useState<Gap>("");
+  const [state, setState] = useState<State>("");
   const [warehouse, setWarehouse] = useState("");
   const [customerId, setCustomerId] = useState("");
 
@@ -48,11 +50,12 @@ export default function SortingFloorPage() {
       getSortingFloor({
         date: mode === "day" ? day : undefined,
         mode,
+        state: state || undefined,
         gap: gap || undefined,
         warehouse: warehouse || undefined,
         customerId: customerId || undefined,
       }),
-    [day, mode, gap, warehouse, customerId],
+    [day, mode, state, gap, warehouse, customerId],
   );
 
   const totals = floor.data?.totals;
@@ -100,13 +103,40 @@ export default function SortingFloorPage() {
             <div>
               {row.original.senderCity ?? "—"} → {row.original.receiverCity ?? "—"}
             </div>
-            <div className="text-xs text-muted-foreground">
-              {/* Где лежит сейчас и куда поедет дальше. */}
-              {shortWarehouse(row.original.warehouse ?? "—")}
-              {row.original.destinationWarehouse &&
-                row.original.destinationWarehouse !== row.original.warehouse &&
-                ` → ${shortWarehouse(row.original.destinationWarehouse)}`}
-            </div>
+            {row.original.destinationWarehouse && (
+              <div className="text-xs text-muted-foreground">
+                до {shortWarehouse(row.original.destinationWarehouse)}
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: "warehouse",
+        header: "Принят на складе",
+        accessorFn: (r) => r.warehouse ?? "",
+        cell: ({ row }) => (
+          <div className="space-y-0.5 text-sm">
+            {row.original.warehouse ? (
+              <div>{shortWarehouse(row.original.warehouse)}</div>
+            ) : (
+              // Коробку отправили раньше, чем мы успели записать склад: врать
+              // и показывать склад назначения нельзя.
+              <span className="text-xs text-muted-foreground">склад не записан</span>
+            )}
+            {!row.original.stillHere && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant="outline" className="text-xs">
+                  уехал
+                </Badge>
+                {row.original.currentWarehouse &&
+                  row.original.currentWarehouse !== row.original.warehouse && (
+                    <span className="text-xs text-muted-foreground">
+                      сейчас: {shortWarehouse(row.original.currentWarehouse)}
+                    </span>
+                  )}
+              </div>
+            )}
           </div>
         ),
       },
@@ -177,7 +207,7 @@ export default function SortingFloorPage() {
     <div className="space-y-5">
       <PageHeader
         title="Склад: что лежит"
-        description="Заказы со статусом In sorting facility: что приняли на сортировку за день и что лежит прямо сейчас. Рядом — разрезы по клиентам и складам и отметка, на каких заказах ещё нет курьера на забор или доставку."
+        description="Заказы со статусом In sorting facility: что приняли на сортировку за день и что лежит прямо сейчас. Склад — тот, где коробку приняли: Shipox при отправке сразу переключает заказ на следующий хаб, поэтому уехавшие помечены отдельно. Рядом — разрезы по клиентам и складам и отметка, на каких заказах ещё нет курьера на забор или доставку."
       />
 
       <Card className="gap-3 p-4">
@@ -221,6 +251,21 @@ export default function SortingFloorPage() {
               ]}
             />
           </div>
+          {mode === "day" && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Состояние</Label>
+              <SelectField
+                value={state}
+                onChange={(next) => setState(next as State)}
+                className="min-w-48"
+                options={[
+                  { value: "", label: "Все принятые" },
+                  { value: "here", label: "Ещё лежит" },
+                  { value: "left", label: "Уже уехал" },
+                ]}
+              />
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Курьер</Label>
             <SelectField
@@ -234,13 +279,14 @@ export default function SortingFloorPage() {
               ]}
             />
           </div>
-          {(gap || warehouse || customerId) && (
+          {(gap || warehouse || customerId || state) && (
             <Button
               variant="ghost"
               size="sm"
               className="mb-0.5"
               onClick={() => {
                 setGap("");
+                setState("");
                 setWarehouse("");
                 setCustomerId("");
               }}
@@ -275,8 +321,24 @@ export default function SortingFloorPage() {
               value={formatNumber(totals?.noPickupDriver ?? 0)}
               tone={(totals?.noPickupDriver ?? 0) > 0 ? "warning" : "default"}
             />
-            <KpiCard label="Клиентов" value={formatNumber(totals?.clients ?? 0)} />
-            <KpiCard label="Складов" value={formatNumber(totals?.warehouses ?? 0)} />
+            {mode === "day" ? (
+              <KpiCard
+                label="Ещё лежат"
+                value={formatNumber(totals?.stillHere ?? 0)}
+                hint={`уехали дальше: ${formatNumber(totals?.left ?? 0)}`}
+              />
+            ) : (
+              <KpiCard label="Клиентов" value={formatNumber(totals?.clients ?? 0)} />
+            )}
+            <KpiCard
+              label="Складов"
+              value={formatNumber(totals?.warehouses ?? 0)}
+              hint={
+                (totals?.warehouseUnknown ?? 0) > 0
+                  ? `без склада приёмки: ${formatNumber(totals?.warehouseUnknown ?? 0)}`
+                  : undefined
+              }
+            />
           </div>
 
           {(totals?.noDeliveryDriver ?? 0) > 0 && !gap && (
@@ -367,7 +429,9 @@ export default function SortingFloorPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">По складам</CardTitle>
-                <p className="text-sm text-muted-foreground">Где именно лежат коробки.</p>
+                <p className="text-sm text-muted-foreground">
+                  Где коробки приняли. Нажмите на склад — таблица сузится до него.
+                </p>
               </CardHeader>
               <CardContent>
                 {floor.data.byWarehouse.length === 0 ? (

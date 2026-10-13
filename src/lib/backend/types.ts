@@ -787,8 +787,12 @@ export interface SortingFloorOrder {
   pieceCount: number;
   weightKg: number;
   chargeableWeightKg: number;
-  /** Где лежит сейчас и куда поедет. */
+  /** Склад, где коробку приняли; пусто — заказ уехал раньше, чем мы записали. */
   warehouse: string | null;
+  /** К какому складу заказ привязан сейчас: у уехавшего это следующий хаб. */
+  currentWarehouse: string | null;
+  /** Ещё лежит на складе или уже ушёл дальше. */
+  stillHere: boolean;
   destinationWarehouse: string | null;
   pickUpWarehouse: string | null;
   pickUpDriverName: string | null;
@@ -810,6 +814,11 @@ export interface SortingFloor {
     noDeliveryDriver: number;
     clients: number;
     warehouses: number;
+    /** Сколько из принятых ещё лежит и сколько уехало дальше. */
+    stillHere: number;
+    left: number;
+    /** У скольких склад приёмки неизвестен: уехали до того, как мы его писали. */
+    warehouseUnknown: number;
   };
   byClient: Array<{
     customerId: string | null;
