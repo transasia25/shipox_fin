@@ -765,6 +765,65 @@ export interface TransitLoadResult {
   warnings: string[];
 }
 
+/**
+ * Коробка на сортировочном складе.
+ *
+ * `arrivedAt` — когда её приняли на склад по ленте статусов; пусто у заказов,
+ * застигнутых первой выгрузкой. Пустой курьер означает, что заказ лежит и
+ * ехать ему пока не с кем.
+ */
+export interface SortingFloorOrder {
+  orderId: string;
+  orderNumber: string;
+  status: string;
+  statusLabel: string;
+  createdDate: string;
+  arrivedAt: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  senderCity: string | null;
+  receiverName: string | null;
+  receiverCity: string | null;
+  pieceCount: number;
+  weightKg: number;
+  chargeableWeightKg: number;
+  /** Где лежит сейчас и куда поедет. */
+  warehouse: string | null;
+  destinationWarehouse: string | null;
+  pickUpWarehouse: string | null;
+  pickUpDriverName: string | null;
+  deliveryDriverName: string | null;
+  noPickupDriver: boolean;
+  noDeliveryDriver: boolean;
+}
+
+export interface SortingFloor {
+  /** День, за который построен отчёт, YYYY-MM-DD. */
+  day: string;
+  mode: "day" | "now";
+  totals: {
+    orders: number;
+    pieces: number;
+    weightKg: number;
+    chargeableWeightKg: number;
+    noPickupDriver: number;
+    noDeliveryDriver: number;
+    clients: number;
+    warehouses: number;
+  };
+  byClient: Array<{
+    customerId: string | null;
+    customerName: string;
+    orders: number;
+    pieces: number;
+    weightKg: number;
+    noPickupDriver: number;
+    noDeliveryDriver: number;
+  }>;
+  byWarehouse: Array<{ warehouse: string; orders: number; noDeliveryDriver: number }>;
+  orders: SortingFloorOrder[];
+}
+
 /** Строка журнала сканов на отправку. */
 export interface TransitScanJournalRow extends TransitLoadScan {
   order: {

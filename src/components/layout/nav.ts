@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Package,
   PackageCheck,
+  PackageSearch,
   Coins,
   Route,
   ScanBarcode,
@@ -60,6 +61,13 @@ export const NAV: NavItem[] = [
   { href: "/warehouse/receive", label: "Приёмка на складе", icon: ScanBarcode, roles: WAREHOUSE },
   { href: "/warehouse/transit", label: "Отправка в транзит", icon: PackageCheck, roles: WAREHOUSE },
   { href: "/warehouse/scans", label: "История действий", icon: ScanSearch, roles: WAREHOUSE },
+  // Что лежит на сортировке — нужно и складу, и диспетчеру, и офису.
+  {
+    href: "/warehouse/sorting",
+    label: "Склад: что лежит",
+    icon: PackageSearch,
+    roles: ["ADMIN", "DISPATCHER", "STOREKEEPER", "ACCOUNTANT", "VIEWER"],
+  },
   {
     href: "/couriers",
     label: "Курьеры",

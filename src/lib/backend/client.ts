@@ -27,6 +27,7 @@ import type {
   OrdersStats,
   Page,
   ShipoxOrderDetail,
+  SortingFloor,
   PricingClientOrder,
   PricingProblem,
   PricingRunResult,
@@ -387,6 +388,20 @@ export function getScanSummary(query: {
   to?: string;
 }): Promise<ScanSummary> {
   return request("/warehouse/scans/summary", { params: query });
+}
+
+/** Сортировочный склад: что приняли за день или что лежит сейчас. */
+export function getSortingFloor(
+  query: {
+    date?: string;
+    mode?: "day" | "now";
+    gap?: "pickup" | "delivery";
+    warehouse?: string;
+    customerId?: string;
+    limit?: number;
+  } = {},
+): Promise<SortingFloor> {
+  return request("/warehouse/sorting", { params: query });
 }
 
 export function listWarehouses(): Promise<WarehouseRef[]> {

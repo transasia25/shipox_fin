@@ -107,6 +107,7 @@ export default function UsersPage() {
                 <th className="px-2 py-2 text-left font-medium">Логин</th>
                 <th className="px-2 py-2 text-left font-medium">Роль</th>
                 <th className="px-2 py-2 text-left font-medium">Склад</th>
+                <th className="px-2 py-2 text-left font-medium">Регион</th>
                 <th className="px-2 py-2 text-left font-medium">Последний вход</th>
                 <th className="px-2 py-2 text-left font-medium">Доступ</th>
                 <th className="px-4 py-2 text-left font-medium">Пароль</th>
@@ -129,23 +130,22 @@ export default function UsersPage() {
                     />
                   </td>
                   <td className="px-2 py-2">
-                    {/* Кладовщику нужен склад, сотруднику ПВЗ — регион. */}
-                    {user.role === "BRANCH" ? (
-                      <SelectField
-                        value={user.hub ?? ""}
-                        onChange={(hub) => void patch(user, { hub: hub || null })}
-                        className="min-w-56"
-                        placeholder="Выберите регион"
-                        options={hubOptions}
-                      />
-                    ) : (
-                      <SelectField
-                        value={user.warehouse ?? ""}
-                        onChange={(warehouse) => void patch(user, { warehouse: warehouse || null })}
-                        className="min-w-56"
-                        options={warehouseOptions}
-                      />
-                    )}
+                    <SelectField
+                      value={user.warehouse ?? ""}
+                      onChange={(warehouse) => void patch(user, { warehouse: warehouse || null })}
+                      className="min-w-56"
+                      options={warehouseOptions}
+                    />
+                  </td>
+                  <td className="px-2 py-2">
+                    {/* Регион видно у всех: его ставят до того, как сделать
+                        сотрудника ПВЗ — без региона такую роль не сохранить. */}
+                    <SelectField
+                      value={user.hub ?? ""}
+                      onChange={(hub) => void patch(user, { hub: hub || null })}
+                      className="min-w-44"
+                      options={hubOptions}
+                    />
                   </td>
                   <td className="px-2 py-2 text-xs text-muted-foreground">
                     {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : "ни разу"}
