@@ -249,6 +249,8 @@ export default function SortingFloorPage() {
               className="min-w-64"
               options={[
                 { value: "", label: "Все склады" },
+                // Отбор заказов, у которых склад приёмки неизвестен.
+                { value: "—", label: "Склад не записан" },
                 ...(warehouses.data ?? []).map((item) => ({ value: item.name, label: item.name })),
               ]}
             />
@@ -456,7 +458,15 @@ export default function SortingFloorPage() {
                             setWarehouse(warehouse === row.warehouse ? "" : row.warehouse)
                           }
                         >
-                          <td className="py-1.5 pr-2">{row.warehouse}</td>
+                          <td className="py-1.5 pr-2">
+                            {/* Прочерк — это «склад не записан»: заказ уехал
+                                раньше, чем мы успели узнать склад. */}
+                            {row.warehouse === "—" ? (
+                              <span className="text-muted-foreground">склад не записан</span>
+                            ) : (
+                              row.warehouse
+                            )}
+                          </td>
                           <td className="py-1.5 text-right tabular-nums">{row.orders}</td>
                           <td className="py-1.5 text-right tabular-nums">
                             {row.noDeliveryDriver > 0 ? (

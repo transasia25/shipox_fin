@@ -66,10 +66,15 @@ import type {
  * с типизированными функциями и не собирают URL руками.
  */
 
-const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api").replace(
-  /\/+$/,
-  "",
-);
+/**
+ * Адрес API. По умолчанию — свой же origin: `/api` проксируется на бэкенд
+ * в [next.config.ts](../../next.config.ts).
+ *
+ * Прямой адрес бэкенда указывать не нужно и вредно: кука сессии тогда
+ * становится сторонней, и Safari её не сохраняет — после входа приложение не
+ * открывается.
+ */
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "/api").replace(/\/+$/, "");
 
 /** Ошибка запроса с внятным текстом: её показывают прямо на экране. */
 export class ApiError extends Error {
