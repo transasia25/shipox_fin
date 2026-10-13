@@ -118,7 +118,14 @@ export default function SortingFloorPage() {
         cell: ({ row }) => (
           <div className="space-y-0.5 text-sm">
             {row.original.warehouse ? (
-              <div>{shortWarehouse(row.original.warehouse)}</div>
+              <div>
+                {shortWarehouse(row.original.warehouse)}
+                {/* Склад не записан, а выведен по городу: из Ташкента коробка
+                    могла попасть только на центральный склад. */}
+                {row.original.warehouseGuessed && (
+                  <span className="ml-1.5 text-xs text-muted-foreground">по городу</span>
+                )}
+              </div>
             ) : (
               // Коробку отправили раньше, чем мы успели записать склад: врать
               // и показывать склад назначения нельзя.

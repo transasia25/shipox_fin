@@ -789,6 +789,8 @@ export interface SortingFloorOrder {
   chargeableWeightKg: number;
   /** Склад, где коробку приняли; пусто — заказ уехал раньше, чем мы записали. */
   warehouse: string | null;
+  /** Склад не записан, а выведен по городу отправления. */
+  warehouseGuessed: boolean;
   /** К какому складу заказ привязан сейчас: у уехавшего это следующий хаб. */
   currentWarehouse: string | null;
   /** Ещё лежит на складе или уже ушёл дальше. */
