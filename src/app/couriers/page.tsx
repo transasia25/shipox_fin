@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { ErrorState } from "@/components/ui-kit/error-state";
+import { NumberField } from "@/components/ui-kit/number-field";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { SelectField } from "@/components/ui-kit/select-field";
 import { useBackend } from "@/hooks/use-backend";
@@ -32,7 +33,7 @@ import {
   updateCourier,
 } from "@/lib/backend/client";
 import type { Courier, CourierImportResult, CourierInput } from "@/lib/backend/types";
-import { formatNumber, plural } from "@/lib/format";
+import { formatMoneyShort, formatNumber, plural, toDateInputValue } from "@/lib/format";
 
 const NO_WAREHOUSE = "__none__";
 
@@ -143,6 +144,15 @@ export default function CouriersPage() {
                 title="Служебная учётка — выплаты не начисляются"
               >
                 служебная
+              </Badge>
+            )}
+            {row.original.shiftRate && (
+              <Badge
+                variant="outline"
+                className="border-sky-500/50 text-sky-700 dark:text-sky-400"
+                title="Фиксированная оплата за смену — заказы в деньгах не считаются"
+              >
+                смена {formatMoneyShort(Number(row.original.shiftRate))}
               </Badge>
             )}
             {row.original.source === "MANUAL" && (
@@ -293,6 +303,9 @@ function CourierForm({
     warehouse: courier?.warehouse ?? NO_WAREHOUSE,
     active: courier?.active ?? true,
     payable: courier?.payable ?? true,
+    // Фиксированная оплата за смену: пусто — курьер считается по тарифу.
+    shiftRate: courier?.shiftRate ? Number(courier.shiftRate) : null,
+    shiftRateFrom: courier?.shiftRateFrom ?? null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -392,6 +405,38 @@ function CourierForm({
           </span>
         </span>
       </label>
+
+      <Field label="Оплата за смену, сум">
+        <NumberField
+          label="Ставка за смену"
+          value={form.shiftRate ?? undefined}
+          onChange={(value) => set("shiftRate", value ?? null)}
+          min={0}
+          step={50000}
+          optional
+          placeholder="по тарифу"
+          suffix="сум"
+        />
+        <p className="text-xs text-muted-foreground">
+          Заполните, если курьеру платят фиксированно за день работы: заказы тогда в деньгах не
+          считаются, а за каждый день с работой начисляется эта сумма. Пусто — считается по
+          тарифу за заборы и доставки.
+        </p>
+      </Field>
+      {form.shiftRate ? (
+        <Field label="Ставка действует с">
+          <Input
+            type="date"
+            value={form.shiftRateFrom ? toDateInputValue(form.shiftRateFrom) : ""}
+            onChange={(event) =>
+              set("shiftRateFrom", event.target.value ? `${event.target.value}T00:00:00Z` : null)
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Прошлые месяцы правка ставки не трогает: смены до этой даты остаются как были.
+          </p>
+        </Field>
+      ) : null}
 
       <DialogFooter>
         <Button type="submit" disabled={saving || !form.name.trim()}>

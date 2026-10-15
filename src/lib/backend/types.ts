@@ -352,6 +352,13 @@ export interface Courier {
   active: boolean;
   /** Начислять ли выплаты. Снят у служебных учёток Shipox. */
   payable: boolean;
+  /**
+   * Фиксированная оплата за смену. Заполнена — заказы в деньгах не считаются,
+   * курьеру платят за день работы, сколько бы заказов он ни привёз.
+   */
+  shiftRate: string | null;
+  /** С какого дня действует ставка: прошлое правка не трогает. */
+  shiftRateFrom: string | null;
   /** MANUAL — заведён или исправлен руками, импорт его не перетирает. */
   source: "SHIPOX_IMPORT" | "MANUAL";
   createdAt: string;
@@ -367,6 +374,8 @@ export interface CourierInput {
   warehouse?: string | null;
   active?: boolean;
   payable?: boolean;
+  shiftRate?: number | null;
+  shiftRateFrom?: string | null;
 }
 
 /** Итог загрузки выгрузки водителей Shipox. */
@@ -450,6 +459,16 @@ export interface ReceiptJournalRow extends Receipt {
 
 export type CourierLeg = "PICKUP" | "DELIVERY" | "RETURN";
 export type CourierRateKind = "CITY" | "DISTRICT" | "HEAVY";
+/** Смена курьера: день работы, оплаченный по фиксированной ставке. */
+export interface CourierShift {
+  id: string;
+  shiftDate: string;
+  amount: string;
+  rate: string;
+  /** AUTO — посчитана по работе, MANUAL — поставлена руками. */
+  source: "AUTO" | "MANUAL";
+}
+
 export type CourierPayoutStatus = "CALCULATED" | "CITY_NOT_FOUND" | "NOT_PAYABLE" | "NO_TARIFF";
 
 /** Версия тарифа курьеров. Деньги приходят строкой — это Decimal. */
@@ -524,6 +543,9 @@ export interface CourierPayout {
 export interface CourierPayoutCounts {
   pickups: number;
   deliveries: number;
+  /** Смены у курьеров с фиксированной оплатой и деньги по ним. */
+  shifts: number;
+  shiftAmount: number;
   heavy: number;
   /** Начислено по заказам, уже с учётом поправленных вручную сумм. */
   amount: number;

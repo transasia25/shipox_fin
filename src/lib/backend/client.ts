@@ -8,6 +8,7 @@ import type {
   CourierAdjustment,
   CourierPayout,
   CourierPayoutChange,
+  CourierShift,
   CourierPayoutRunResult,
   CourierPayoutStatus,
   CourierPayoutSummary,
@@ -494,6 +495,13 @@ export function listAssignedOrders(
   query: { from?: string; to?: string; courierId?: string; shipoxDriverId?: string } = {},
 ): Promise<AssignedOrder[]> {
   return request("/courier-payouts/assigned", { params: query });
+}
+
+/** Смены курьера за период: день и сколько за него начислено. */
+export function listCourierShifts(
+  query: { from?: string; to?: string; courierId?: string } = {},
+): Promise<CourierShift[]> {
+  return request("/courier-payouts/shifts", { params: query });
 }
 
 /** Поправить сумму начисления руками. Причина обязательна. */

@@ -45,6 +45,7 @@ import {
   getCourierPayoutSummary,
   listAssignedOrders,
   listCourierAdjustments,
+  listCourierShifts,
   listCourierPayoutChanges,
   listCourierPayouts,
   removeCourierAdjustment,
@@ -66,7 +67,7 @@ import {
   RATE_KIND_LABEL,
   payoutCityLabel,
 } from "@/lib/courier-payouts";
-import { formatDateTime, formatMoneyShort, formatNumber, formatWeight } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoneyShort, formatNumber, formatWeight } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import { useFinanceStore } from "@/lib/store";
 
@@ -176,6 +177,24 @@ export default function CourierPayoutsPage() {
             )}
           </div>
         ),
+      },
+      {
+        id: "shifts",
+        header: "Смен",
+        accessorFn: (r) => r.shifts,
+        meta: { align: "right" },
+        cell: ({ row }) =>
+          row.original.shifts === 0 ? (
+            <span className="text-muted-foreground/50">—</span>
+          ) : (
+            <div>
+              <span className="tabular-nums">{formatNumber(row.original.shifts)}</span>
+              {/* У такого курьера деньги считаются только по сменам. */}
+              <div className="text-xs text-muted-foreground">
+                {formatMoneyShort(row.original.shiftAmount)}
+              </div>
+            </div>
+          ),
       },
       {
         id: "pickups",
@@ -388,6 +407,13 @@ export default function CourierPayoutsPage() {
                 (totals?.assigned ?? 0) - (totals?.inProgress ?? 0),
               )}`}
             />
+            {(totals?.shifts ?? 0) > 0 && (
+              <KpiCard
+                label="Смен"
+                value={formatNumber(totals?.shifts ?? 0)}
+                hint={`фиксированная оплата: ${formatMoneyShort(totals?.shiftAmount ?? 0)}`}
+              />
+            )}
             <KpiCard label="Заборов" value={formatNumber(totals?.pickups ?? 0)} />
             <KpiCard label="Доставок" value={formatNumber(totals?.deliveries ?? 0)} />
             <KpiCard
@@ -516,10 +542,14 @@ function PayoutDetail({
         </SheetTitle>
         <SheetDescription>
           {detail.kind === "courier"
-            ? `В работе ${detail.row.inProgress} из ${detail.row.assigned} назначенных · заборов ${detail.row.pickups}, доставок ${detail.row.deliveries}, возвратов ${detail.row.returns} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
+            ? `${detail.row.shifts > 0 ? `Смен ${detail.row.shifts} · ` : ""}В работе ${detail.row.inProgress} из ${detail.row.assigned} назначенных · заборов ${detail.row.pickups}, доставок ${detail.row.deliveries}, возвратов ${detail.row.returns} · начислено ${formatMoneyShort(detail.row.amount)} · к выплате ${formatMoneyShort(detail.row.payable)}`
             : `${formatNumber(detail.count)} — работа учтена, но сумма не начислена`}
         </SheetDescription>
       </SheetHeader>
+
+      {detail.kind === "courier" && detail.row.shifts > 0 && (
+        <ShiftsBlock courier={detail.row} from={from} to={to} />
+      )}
 
       {detail.kind === "courier" && detail.row.assigned > 0 && (
         <AssignedBlock courier={detail.row} from={from} to={to} />
@@ -1111,5 +1141,63 @@ function ChangeLog({ from, to }: { from: string; to: string }) {
         </ul>
       )}
     </>
+  );
+}
+
+/**
+ * Смены курьера: у него фиксированная оплата за день работы.
+ *
+ * Заказы такого курьера в деньгах не считаются — они остаются в списке ниже
+ * как объём работы, а платят ему по сменам.
+ */
+function ShiftsBlock({
+  courier,
+  from,
+  to,
+}: {
+  courier: CourierPayoutSummaryRow;
+  from: string;
+  to: string;
+}) {
+  const shifts = useBackend(
+    () =>
+      courier.courierId
+        ? listCourierShifts({ courierId: courier.courierId, from, to })
+        : Promise.resolve([]),
+    [courier.courierId, from, to],
+  );
+
+  return (
+    <div className="border-b border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+        <span className="text-sm font-medium">
+          Смены
+          <span className="ml-2 font-normal text-muted-foreground">
+            {formatNumber(courier.shifts)} · фиксированная оплата
+          </span>
+        </span>
+        <Money value={courier.shiftAmount} className="font-medium" />
+      </div>
+
+      {shifts.data === null ? (
+        <Skeleton className="m-4 h-20" />
+      ) : (
+        <ul className="divide-y divide-border text-sm">
+          {shifts.data.map((shift) => (
+            <li key={shift.id} className="flex items-center justify-between gap-3 px-4 py-2">
+              <span>
+                {formatDate(shift.shiftDate)}
+                {shift.source === "MANUAL" && (
+                  <Badge variant="outline" className="ml-2">
+                    вручную
+                  </Badge>
+                )}
+              </span>
+              <Money value={Number(shift.amount)} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
