@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Calculator,
+  Download,
   ChevronDown,
   ChevronRight,
   History,
@@ -41,6 +42,7 @@ import { SelectField } from "@/components/ui-kit/select-field";
 import { useBackend } from "@/hooks/use-backend";
 import {
   addCourierAdjustment,
+  apiFileUrl,
   editCourierPayout,
   getCourierPayoutSummary,
   listAssignedOrders,
@@ -315,6 +317,18 @@ export default function CourierPayoutsPage() {
         }
         actions={
           <>
+            <Button
+              variant="outline"
+              render={
+                <a
+                  href={apiFileUrl("/courier-payouts/export.csv", { ...window, ...place })}
+                  download
+                />
+              }
+            >
+              <Download className="size-4" />
+              Скачать CSV
+            </Button>
             <Button variant="outline" onClick={() => setChangesOpen(true)}>
               <History className="size-4" />
               Журнал правок

@@ -497,6 +497,16 @@ export function listAssignedOrders(
   return request("/courier-payouts/assigned", { params: query });
 }
 
+/**
+ * Адрес файла, который скачивают ссылкой, а не запросом.
+ *
+ * Собирается от того же базового адреса, что и остальные вызовы: API живёт на своём
+ * origin, поэтому кука сессии уходит с обычной ссылкой.
+ */
+export function apiFileUrl(path: string, params?: Params): string {
+  return buildUrl(path, params);
+}
+
 /** Смены курьера за период: день и сколько за него начислено. */
 export function listCourierShifts(
   query: { from?: string; to?: string; courierId?: string } = {},
