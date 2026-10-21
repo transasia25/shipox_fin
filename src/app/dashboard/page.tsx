@@ -258,14 +258,16 @@ function ProfitBlock({
   const chart: WeekPoint[] = data.series.map((row) => ({
     label: formatDate(row.bucket).slice(0, 5),
     revenue: row.revenue,
-    payouts: row.courierCost + row.transitCost,
-    profit: row.revenue - row.courierCost - row.transitCost,
+    payouts: row.courierCost + row.shiftCost + row.transitCost,
+    profit: row.revenue - row.courierCost - row.shiftCost - row.transitCost,
   }));
 
   const legs = [
     t.courierPickups > 0 && `заборы ${formatMoneyShort(t.courierPickups)}`,
     t.courierDeliveries > 0 && `доставки ${formatMoneyShort(t.courierDeliveries)}`,
     t.courierReturns > 0 && `возвраты ${formatMoneyShort(t.courierReturns)}`,
+    // Смены — деньги посменных курьеров: их заказы в плечах стоят по нулю.
+    t.shiftCost > 0 && `смены ${formatMoneyShort(t.shiftCost)}`,
   ].filter(Boolean);
 
   return (
@@ -283,7 +285,7 @@ function ProfitBlock({
         />
         <KpiCard
           label="Курьеры"
-          value={formatMoneyShort(t.courierCost + t.adjustments)}
+          value={formatMoneyShort(t.courierCost + t.shiftCost + t.adjustments)}
           icon={<Users className="size-4" />}
           hint={legs.length > 0 ? legs.join(" · ") : undefined}
         />
@@ -323,8 +325,8 @@ function ProfitBlock({
           <CardHeader>
             <CardTitle className="text-base">Клиенты по прибыли</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Выручка минус начисления курьерам по заказам клиента. Межгород общий для рейса и
-              по клиентам не делится.
+              Выручка минус начисления курьерам по заказам клиента, их доля смен и доля рейса
+              межгорода по оплачиваемому весу заказа.
             </p>
           </CardHeader>
           <CardContent>
@@ -337,6 +339,7 @@ function ProfitBlock({
                     <th className="pb-1 text-left font-medium">Клиент</th>
                     <th className="pb-1 text-right font-medium">Выручка</th>
                     <th className="pb-1 text-right font-medium">Курьеры</th>
+                    <th className="pb-1 text-right font-medium">Межгород</th>
                     <th className="pb-1 text-right font-medium">Прибыль</th>
                     <th className="pb-1 text-right font-medium">Маржа</th>
                   </tr>
@@ -350,6 +353,13 @@ function ProfitBlock({
                       </td>
                       <td className="py-1.5 text-right text-muted-foreground">
                         <Money value={row.courierCost} />
+                      </td>
+                      <td className="py-1.5 text-right text-muted-foreground">
+                        {row.transitCost > 0 ? (
+                          <Money value={row.transitCost} />
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        )}
                       </td>
                       <td className="py-1.5 text-right font-medium">
                         <Money value={row.profit} />

@@ -3,26 +3,26 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Calculator, RefreshCw, TriangleAlert } from "lucide-react";
+import { Calculator, RefreshCw, Truck, TriangleAlert, Users, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui-kit/error-state";
-import { SelectField } from "@/components/ui-kit/select-field";
 import { KpiCard } from "@/components/ui-kit/kpi-card";
-import { Money } from "@/components/ui-kit/money";
+import { Money, MarginValue } from "@/components/ui-kit/money";
 import { PageHeader } from "@/components/ui-kit/page-header";
+import { SelectField } from "@/components/ui-kit/select-field";
 import { useBackend } from "@/hooks/use-backend";
 import {
   getPricingSummary,
@@ -33,8 +33,10 @@ import {
 import type { PricingBasis, PricingClientOrder, PricingClientRow } from "@/lib/backend/types";
 import {
   formatDate,
+  formatDateRange,
   formatMoneyShort,
   formatNumber,
+  formatPercent,
   formatWeight,
   plural,
 } from "@/lib/format";
@@ -53,6 +55,13 @@ const BASIS_HINT: Record<PricingBasis, string> = {
     "Только доставленные, в период попадают по дате доставки — так же считается выручка в дашборде.",
   CREATED_DELIVERED:
     "Заказы, созданные за период и уже доставленные, — что из этого периода можно выставлять в счёт.",
+};
+
+/** Короткая подпись отбора — для шапки окна с заказами. */
+const BASIS_SHORT: Record<PricingBasis, string> = {
+  CREATED: "по дате создания",
+  DELIVERED: "доставленные, по дате доставки",
+  CREATED_DELIVERED: "доставленные из созданных за период",
 };
 
 export default function ClientsPage() {
@@ -109,21 +118,16 @@ export default function ClientsPage() {
         header: "Заказов",
         accessorFn: (r) => r.orders,
         meta: { align: "center" },
-        cell: ({ row }) => <span className="tabular-nums">{row.original.orders}</span>,
-      },
-      {
-        id: "unpriced",
-        header: "Без цены",
-        accessorFn: (r) => r.unpriced,
-        meta: { align: "center" },
-        cell: ({ row }) =>
-          row.original.unpriced > 0 ? (
-            <span className="font-medium text-destructive tabular-nums">
-              {row.original.unpriced}
-            </span>
-          ) : (
-            <span className="text-muted-foreground/50">—</span>
-          ),
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <div className="tabular-nums">{formatNumber(row.original.orders)}</div>
+            {row.original.unpriced > 0 && (
+              <div className="text-xs text-destructive tabular-nums">
+                {formatNumber(row.original.unpriced)} без цены
+              </div>
+            )}
+          </div>
+        ),
       },
       {
         id: "total",
@@ -137,6 +141,49 @@ export default function ClientsPage() {
           </div>
         ),
       },
+      {
+        id: "courierCost",
+        header: "Курьеры",
+        accessorFn: (r) => r.courierCost,
+        meta: { align: "right", className: "hidden sm:table-cell" },
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <Money value={row.original.courierCost} className="text-muted-foreground" />
+            {row.original.courierShiftCost > 0 && (
+              <div className="text-xs text-muted-foreground">
+                из них смены {formatMoneyShort(row.original.courierShiftCost)}
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: "transitCost",
+        header: "Межгород",
+        accessorFn: (r) => r.transitCost,
+        meta: { align: "right", className: "hidden sm:table-cell" },
+        cell: ({ row }) =>
+          row.original.ordersInTransit === 0 ? (
+            <span className="text-muted-foreground/50">—</span>
+          ) : (
+            <div className="space-y-0.5">
+              <Money value={row.original.transitCost} className="text-muted-foreground" />
+              <div className="text-xs text-muted-foreground">
+                {formatNumber(row.original.ordersInTransit)} из{" "}
+                {formatNumber(row.original.orders)} уехали
+              </div>
+            </div>
+          ),
+      },
+      {
+        id: "profit",
+        header: "Прибыль",
+        accessorFn: (r) => r.profit,
+        meta: { align: "right" },
+        cell: ({ row }) => (
+          <MarginValue value={row.original.profit} pct={row.original.margin} />
+        ),
+      },
     ],
     [],
   );
@@ -147,7 +194,7 @@ export default function ClientsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Клиенты и расчёты"
-        description="Сколько каждый клиент должен заплатить за доставку. Стоимость считает тарифный калькулятор по нашим тарифным планам — суммы Shipox не используются."
+        description="Сколько клиент должен заплатить и сколько его заказы стоили нам. Цену считает тарифный калькулятор; расход — начисления курьерам по заказам клиента и доля рейса межгорода по оплачиваемому весу."
         actions={
           <>
             <Button variant="outline" onClick={() => recalculate(false)} disabled={running}>
@@ -197,22 +244,39 @@ export default function ClientsPage() {
             <KpiCard
               label="К оплате за период"
               value={formatMoneyShort(totals?.amount ?? 0)}
-              hint={`${formatNumber(totals?.priced ?? 0)} из ${formatNumber(totals?.orders ?? 0)} заказов посчитано`}
+              icon={<Wallet className="size-4" />}
+              hint={
+                `${formatNumber(totals?.priced ?? 0)} из ${formatNumber(totals?.orders ?? 0)} посчитано` +
+                (totals?.provisionalAmount
+                  ? ` · предварительно ${formatMoneyShort(totals.provisionalAmount)}`
+                  : "")
+              }
             />
             <KpiCard
-              label="Из них предварительно"
-              value={formatMoneyShort(totals?.provisionalAmount ?? 0)}
-              tone={totals?.provisionalAmount ? "warning" : "default"}
-              hint="клиенты без своего тарифа в калькуляторе"
+              label="Курьеры"
+              value={formatMoneyShort(totals?.courierCost ?? 0)}
+              icon={<Users className="size-4" />}
+              hint={
+                `из них смены ${formatMoneyShort(totals?.courierShiftCost ?? 0)}` +
+                (totals?.shiftUnallocated
+                  ? ` · не на что разнести ${formatMoneyShort(totals.shiftUnallocated)}`
+                  : "")
+              }
             />
             <KpiCard
-              label="Заказов без цены"
-              value={formatNumber(totals?.unpriced ?? 0)}
-              tone={totals?.unpriced ? "negative" : "default"}
+              label="Межгород"
+              value={formatMoneyShort(totals?.transitCost ?? 0)}
+              icon={<Truck className="size-4" />}
+              hint="доля рейсов по оплачиваемому весу заказа"
             />
             <KpiCard
-              label="Клиентов"
-              value={formatNumber(summary.data?.clients.length ?? 0)}
+              label="Прибыль"
+              value={formatMoneyShort(totals?.profit ?? 0)}
+              tone={(totals?.profit ?? 0) < 0 ? "negative" : "positive"}
+              hint={
+                `маржа ${formatPercent(totals?.margin ?? 0)} · на заказ ` +
+                `${formatNumber(totals?.perOrderProfit ?? 0)} при цене ${formatNumber(totals?.perOrderRevenue ?? 0)}`
+              }
             />
           </div>
 
@@ -254,19 +318,21 @@ export default function ClientsPage() {
         </>
       )}
 
-      <Sheet open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
-        <SheetContent className="w-full gap-0 overflow-y-auto data-[side=right]:sm:max-w-2xl">
+      <Dialog open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
+        {/* Широкое окно по центру: в детализации восемь столбцов с деньгами, в
+            узкой панели они не читались. */}
+        <DialogContent className="flex max-h-[90vh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100vw-4rem))]">
           {detail && (
             <ClientOrders client={detail} from={window.from} to={window.to} basis={basis} />
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 /**
- * Заказы клиента за период — из чего сложилась сумма в счёте.
+ * Заказы клиента: из чего сложились и счёт, и себестоимость.
  *
  * Заказы без цены показываются здесь же: иначе непонятно, почему сумма меньше
  * ожидаемой, а причина от калькулятора осталась бы только в отчёте о проблемах.
@@ -289,17 +355,126 @@ function ClientOrders({
 
   const rows = orders.data ?? [];
   const priced = rows.filter((row) => row.amount !== null);
-  const total = priced.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+  const revenue = priced.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+  const courierCost = rows.reduce((sum, row) => sum + row.courierCost, 0);
+  const transitCost = rows.reduce((sum, row) => sum + row.transitCost, 0);
+  const profit = revenue - courierCost - transitCost;
+
+  const columns = useMemo<ColumnDef<PricingClientOrder, unknown>[]>(
+    () => [
+      {
+        id: "order",
+        header: "Заказ",
+        accessorFn: (r) => r.orderNumber,
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <Link
+              href={`/orders/${row.original.orderNumber}`}
+              className="font-medium tabular-nums hover:underline"
+            >
+              {row.original.orderNumber}
+            </Link>
+            <div className="text-xs text-muted-foreground">{row.original.statusLabel}</div>
+          </div>
+        ),
+      },
+      {
+        id: "date",
+        header: "Дата",
+        accessorFn: (r) => (basis === "DELIVERED" ? r.deliveredDate : r.createdDate) ?? "",
+        cell: ({ row }) => {
+          // Дата та же, по которой заказ попал в период: иначе строка выглядела
+          // бы выпавшей из отбора.
+          const delivered = basis === "DELIVERED" && row.original.deliveredDate;
+          return (
+            <span className="whitespace-nowrap text-muted-foreground">
+              {formatDate(delivered ? row.original.deliveredDate! : row.original.createdDate)}
+            </span>
+          );
+        },
+      },
+      {
+        id: "route",
+        header: "Маршрут",
+        accessorFn: (r) => `${r.senderCity ?? ""} ${r.receiverCity ?? ""}`,
+        meta: { className: "hidden lg:table-cell" },
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {[row.original.senderCity, row.original.receiverCity].filter(Boolean).join(" → ")}
+          </span>
+        ),
+      },
+      {
+        id: "weight",
+        header: "Вес",
+        accessorFn: (r) => r.weightKg,
+        meta: { align: "right", className: "hidden sm:table-cell" },
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-muted-foreground tabular-nums">
+            {formatWeight(row.original.weightKg)}
+          </span>
+        ),
+      },
+      {
+        id: "amount",
+        header: "К оплате",
+        accessorFn: (r) => r.amount ?? -1,
+        meta: { align: "right" },
+        cell: ({ row }) =>
+          row.original.amount === null ? (
+            <div className="space-y-0.5">
+              <span className="text-xs text-muted-foreground">без цены</span>
+              {/* Почему заказ не попал в сумму — дословно от калькулятора. */}
+              <div className="max-w-40 text-xs text-amber-700 dark:text-amber-400">
+                {row.original.error ?? (row.original.status === null ? "ещё не считали" : "цены нет")}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-end gap-2">
+              <Money value={row.original.amount} />
+              {row.original.provisional && <Badge variant="outline">предв.</Badge>}
+            </div>
+          ),
+      },
+      {
+        id: "courier",
+        header: "Курьеры",
+        accessorFn: (r) => r.courierCost,
+        meta: { align: "right" },
+        cell: ({ row }) => <CourierCost order={row.original} />,
+      },
+      {
+        id: "transit",
+        header: "Межгород",
+        accessorFn: (r) => r.transitCost,
+        meta: { align: "right" },
+        cell: ({ row }) => <TransitCost order={row.original} />,
+      },
+      {
+        id: "profit",
+        header: "Прибыль",
+        accessorFn: (r) => r.profit ?? 0,
+        meta: { align: "right" },
+        cell: ({ row }) =>
+          row.original.profit === null ? (
+            <span className="text-muted-foreground/50">—</span>
+          ) : (
+            <MarginValue value={row.original.profit} pct={row.original.margin ?? undefined} />
+          ),
+      },
+    ],
+    [basis],
+  );
 
   return (
     <>
-      <SheetHeader className="border-b border-border">
-        <SheetTitle>{client.customerName}</SheetTitle>
-        <SheetDescription>
-          {`Заказов ${formatNumber(client.orders)} · посчитано ${formatNumber(client.priced)} · к оплате ${formatMoneyShort(client.total)}`}
+      <DialogHeader className="shrink-0 gap-1 border-b border-border p-4 pr-12">
+        <DialogTitle>{client.customerName}</DialogTitle>
+        <DialogDescription>
+          {`${formatDateRange(from, to)} · ${BASIS_SHORT[basis]} · заказов ${formatNumber(client.orders)}`}
           {client.provisional && " · тариф по умолчанию, сумма предварительная"}
-        </SheetDescription>
-      </SheetHeader>
+        </DialogDescription>
+      </DialogHeader>
 
       {orders.error ? (
         <div className="p-4">
@@ -308,84 +483,121 @@ function ClientOrders({
       ) : orders.data === null ? (
         <Skeleton className="m-4 h-64" />
       ) : (
-        <>
-          <ul className="divide-y divide-border text-sm">
-            {rows.map((order) => (
-              <ClientOrderLine key={order.orderId} order={order} basis={basis} />
-            ))}
-          </ul>
-          {rows.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">За период заказов нет.</p>
-          ) : (
-            // Итог по показанным строкам: он должен сойтись с суммой в таблице.
-            <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-sm">
-              <span className="text-muted-foreground">
-                Итого по {formatNumber(priced.length)}{" "}
-                {plural(priced.length, "заказу", "заказам", "заказам")}
-                {/* Список длиннее, чем отдаёт один запрос: итог ниже суммы в таблице. */}
-                {rows.length < client.orders &&
-                  ` · показаны последние ${formatNumber(rows.length)} из ${formatNumber(client.orders)}`}
-              </span>
-              <Money value={total} className="font-medium" />
-            </div>
-          )}
-        </>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <KpiCard label="К оплате" value={formatMoneyShort(client.total)} />
+            <KpiCard
+              label="Курьеры"
+              value={formatMoneyShort(client.courierCost)}
+              hint={
+                client.courierShiftCost > 0
+                  ? `из них смены ${formatMoneyShort(client.courierShiftCost)}`
+                  : undefined
+              }
+            />
+            <KpiCard
+              label="Межгород"
+              value={formatMoneyShort(client.transitCost)}
+              hint={`${formatNumber(client.ordersInTransit)} ${plural(client.ordersInTransit, "заказ", "заказа", "заказов")} уехали`}
+            />
+            <KpiCard
+              label="Прибыль"
+              value={formatMoneyShort(client.profit)}
+              tone={client.profit < 0 ? "negative" : "positive"}
+              hint={`маржа ${formatPercent(client.margin)} · на заказ ${formatNumber(
+                client.orders > 0 ? Math.round(client.profit / client.orders) : 0,
+              )}`}
+            />
+          </div>
+
+          <DataTable
+            data={rows}
+            columns={columns}
+            initialSorting={[{ id: "date", desc: true }]}
+            pageSize={100}
+            emptyMessage="За период заказов нет"
+            footer={
+              rows.length === 0 ? undefined : (
+                // Итог по всем строкам ответа, а не по текущей странице: он
+                // должен сходиться со строкой клиента в таблице.
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-sm">
+                  <span className="text-muted-foreground">
+                    Итого по {formatNumber(priced.length)}{" "}
+                    {plural(priced.length, "заказу", "заказам", "заказам")}
+                    {rows.length < client.orders &&
+                      ` · показаны последние ${formatNumber(rows.length)} из ${formatNumber(client.orders)}`}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-4">
+                    <Money value={revenue} className="font-medium" />
+                    <Money value={courierCost} className="text-muted-foreground" />
+                    <Money value={transitCost} className="text-muted-foreground" />
+                    <MarginValue
+                      value={profit}
+                      pct={revenue > 0 ? Math.round((profit / revenue) * 1000) / 10 : undefined}
+                    />
+                  </span>
+                </div>
+              )
+            }
+          />
+        </div>
       )}
     </>
   );
 }
 
-function ClientOrderLine({
-  order,
-  basis,
-}: {
-  order: PricingClientOrder;
-  basis: PricingBasis;
-}) {
-  // Дата та же, по которой заказ попал в период: иначе строка выглядела бы
-  // выпавшей из отбора.
-  const date =
-    basis === "DELIVERED" && order.deliveredDate
-      ? `доставлен ${formatDate(order.deliveredDate)}`
-      : formatDate(order.createdDate);
+/** Расход на курьеров по заказу: сдельные начисления и доля смены. */
+function CourierCost({ order }: { order: PricingClientOrder }) {
+  if (order.courierLegs === 0 && order.byShiftLegs === 0) {
+    return <span className="text-muted-foreground/50">—</span>;
+  }
+
+  // Плечи есть, а денег нет: смену за этот день ещё не начислили.
+  if (order.courierCost === 0 && order.byShiftLegs > 0) {
+    return <span className="text-xs text-amber-700 dark:text-amber-400">смена не начислена</span>;
+  }
 
   return (
-    <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-4 py-2.5">
-      <div className="min-w-0 space-y-0.5">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <Link
-            href={`/orders/${order.orderNumber}`}
-            className="font-medium tabular-nums hover:underline"
-          >
-            {order.orderNumber}
-          </Link>
-          <span className="text-xs text-muted-foreground">{order.statusLabel}</span>
-          {order.provisional && <Badge variant="outline">предв.</Badge>}
-        </div>
+    <div className="space-y-0.5">
+      <Money value={order.courierCost} />
+      {order.courierShift > 0 && (
         <div className="text-xs text-muted-foreground">
-          {[
-            date,
-            [order.senderCity, order.receiverCity].filter(Boolean).join(" → "),
-            `${formatWeight(order.weightKg)} опл.`,
-            order.boxCount > 1 ? `${order.boxCount} мест` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+          смена {formatNumber(order.courierShift)}
+          {order.shiftOrders > 0 &&
+            ` · 1 из ${formatNumber(order.shiftOrders)} ${plural(order.shiftOrders, "заказа", "заказов", "заказов")} дня`}
         </div>
-        {/* Почему заказ не попал в сумму — дословно от калькулятора. */}
-        {order.amount === null && (
-          <div className="text-xs text-amber-700 dark:text-amber-400">
-            {order.error ?? (order.status === null ? "ещё не считали" : "цены нет")}
-          </div>
-        )}
+      )}
+    </div>
+  );
+}
+
+/**
+ * Доля рейса межгорода.
+ *
+ * Рядом с суммой всегда стоит, из чего она получилась: на полупустом рейсе доля
+ * огромна, и без веса рейса её нельзя прочитать правильно.
+ */
+function TransitCost({ order }: { order: PricingClientOrder }) {
+  if (order.inTransitDays === 0) {
+    return (
+      <span className="text-muted-foreground/50" title="в межгород не уезжал">
+        —
+      </span>
+    );
+  }
+
+  if (order.transitRuns === 0) {
+    return <span className="text-xs text-amber-700 dark:text-amber-400">плечи не посчитаны</span>;
+  }
+
+  return (
+    <div className="space-y-0.5">
+      <Money value={order.transitCost} />
+      <div className="text-xs text-muted-foreground">
+        {`${formatWeight(order.weightKg)} из ${formatWeight(order.runWeightKg)}`}
+        {order.sharePct !== null && ` · ${formatPercent(order.sharePct)}`}
+        {order.transitRuns > 1 && ` · ${order.transitRuns} рейса`}
       </div>
-      <div className="shrink-0 text-right">
-        {order.amount === null ? (
-          <span className="text-xs text-muted-foreground">без цены</span>
-        ) : (
-          <Money value={order.amount} />
-        )}
-      </div>
-    </li>
+    </div>
   );
 }

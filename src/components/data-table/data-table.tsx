@@ -75,7 +75,10 @@ export function DataTable<T>({
                 {headerGroup.headers.map((header) => {
                   const sortable = header.column.getCanSort();
                   const sorted = header.column.getIsSorted();
-                  const align = (header.column.columnDef.meta as { align?: string } | undefined)?.align;
+                  const meta = header.column.columnDef.meta as
+                    | { align?: string; className?: string }
+                    | undefined;
+                  const align = meta?.align;
                   return (
                     <TableHead
                       key={header.id}
@@ -83,6 +86,7 @@ export function DataTable<T>({
                         "whitespace-nowrap",
                         align === "right" && "text-right",
                         align === "center" && "text-center",
+                        meta?.className,
                       )}
                     >
                       {header.isPlaceholder ? null : sortable ? (
@@ -127,13 +131,17 @@ export function DataTable<T>({
                   className={cn(onRowClick && "cursor-pointer")}
                 >
                   {row.getVisibleCells().map((cell) => {
-                    const align = (cell.column.columnDef.meta as { align?: string } | undefined)?.align;
+                    const meta = cell.column.columnDef.meta as
+                      | { align?: string; className?: string }
+                      | undefined;
+                    const align = meta?.align;
                     return (
                       <TableCell
                         key={cell.id}
                         className={cn(
                           align === "right" && "text-right",
                           align === "center" && "text-center",
+                          meta?.className,
                         )}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}

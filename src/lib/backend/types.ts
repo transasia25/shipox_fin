@@ -136,6 +136,21 @@ export interface PricingClientRow {
   total: number;
   /** Считается по плану по умолчанию — сумма предварительная. */
   provisional: boolean;
+
+  /** Начисления курьерам по заказам клиента, включая доли смен. */
+  courierCost: number;
+  /** Та часть расхода на курьеров, что пришла из фиксированных смен. */
+  courierShiftCost: number;
+  /** Доля рейсов межгорода по весу заказов клиента. */
+  transitCost: number;
+  /** Курьеры плюс межгород. */
+  cost: number;
+  /** Сколько заказов клиента уезжали в межгород. */
+  ordersInTransit: number;
+  /** Выручка минус себестоимость. */
+  profit: number;
+  /** Доля прибыли в выручке, %. */
+  margin: number;
 }
 
 export interface PricingSummary {
@@ -146,6 +161,19 @@ export interface PricingSummary {
     unpriced: number;
     amount: number;
     provisionalAmount: number;
+    courierCost: number;
+    courierShiftCost: number;
+    transitCost: number;
+    cost: number;
+    profit: number;
+    margin: number;
+    /** Юнит-экономика: те же деньги в расчёте на один заказ периода. */
+    perOrderRevenue: number;
+    perOrderCost: number;
+    perOrderProfit: number;
+    /** Смены, которые не на что разнести: курьер вышел, а заказов не было. */
+    shiftUnallocated: number;
+    shiftUnallocatedDays: number;
   };
 }
 
@@ -166,6 +194,10 @@ export interface FinanceProfit {
     courierPickups: number;
     courierDeliveries: number;
     courierReturns: number;
+    /** Фиксированная оплата за смену: у посменных курьеров это и есть их деньги. */
+    shiftCost: number;
+    /** Смены, которые не на что разнести по заказам. */
+    shiftUnallocated: number;
     /** Надбавки и удержания курьерам, со знаком. */
     adjustments: number;
     transitCost: number;
@@ -178,6 +210,7 @@ export interface FinanceProfit {
     bucket: string;
     revenue: number;
     courierCost: number;
+    shiftCost: number;
     transitCost: number;
   }>;
   runs: Array<{
@@ -194,6 +227,8 @@ export interface FinanceProfit {
     customerName: string;
     revenue: number;
     courierCost: number;
+    /** Доля рейсов межгорода по весу заказов клиента. */
+    transitCost: number;
     profit: number;
     margin: number;
   }>;
@@ -228,6 +263,30 @@ export interface PricingClientOrder {
   provisional: boolean;
   error: string | null;
   calculatedAt: string | null;
+
+  /** Начисления курьерам по этому заказу: сдельные плюс доля смены. */
+  courierCost: number;
+  courierPiece: number;
+  courierShift: number;
+  /** Заказов у курьера в тот день — из чего получилась доля смены. */
+  shiftOrders: number;
+  /** Плеч «входит в смену»: больше нуля при нулевой доле — смена не начислена. */
+  byShiftLegs: number;
+  courierLegs: number;
+  /** Доля рейсов межгорода по весу заказа. */
+  transitCost: number;
+  transitRuns: number;
+  /** Отправок в транзит: больше нуля при нулевых рейсах — плечи не посчитаны. */
+  inTransitDays: number;
+  /** Вес всех заказов этих рейсов — знаменатель развесовки. */
+  runWeightKg: number;
+  /** Доля заказа в рейсе, %. null — не уезжал. */
+  sharePct: number | null;
+  /** Курьеры плюс межгород. */
+  cost: number;
+  /** null — цены нет, прибыль считать не от чего. */
+  profit: number | null;
+  margin: number | null;
 }
 
 export interface PricingProblem {
