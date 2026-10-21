@@ -29,6 +29,7 @@ import type {
   Page,
   ShipoxOrderDetail,
   SortingFloor,
+  PricingBasis,
   PricingClientOrder,
   PricingProblem,
   PricingRunResult,
@@ -232,6 +233,11 @@ export interface PricingPeriod extends Params {
   to?: string;
 }
 
+/** Период плюс отбор заказов: все по дате создания или только доставленные. */
+export interface PricingWindow extends PricingPeriod {
+  basis?: PricingBasis;
+}
+
 /** Производственная прибыль за период: выручка, расходы, прибыль. */
 export function getProfit(period: PricingPeriod = {}): Promise<FinanceProfit> {
   return request("/finance/profit", { params: period });
@@ -248,13 +254,14 @@ export function setRouteCost(
   });
 }
 
-/** Направления и их остановки. */export function getPricingSummary(period: PricingPeriod = {}): Promise<PricingSummary> {
-  return request("/pricing/summary", { params: period });
+/** Сколько каждый клиент должен заплатить за период. */
+export function getPricingSummary(window: PricingWindow = {}): Promise<PricingSummary> {
+  return request("/pricing/summary", { params: window });
 }
 
 /** Заказы одного клиента за период со стоимостью по каждому. */
 export function listClientOrders(
-  query: PricingPeriod & { customerId: string; limit?: number },
+  query: PricingWindow & { customerId: string; limit?: number },
 ): Promise<PricingClientOrder[]> {
   return request("/pricing/client-orders", { params: query });
 }

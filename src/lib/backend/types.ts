@@ -118,6 +118,15 @@ export interface OrderPrice {
   error: string | null;
 }
 
+/**
+ * Какие заказы берёт отчёт по клиентам и по какой дате они попадают в период.
+ *
+ * `CREATED` — все заказы по дате создания, так же считает расчёт стоимости.
+ * `DELIVERED` — только доставленные, по дате доставки: так в дашборде считается
+ * выручка. `CREATED_DELIVERED` — созданные в периоде и уже доставленные.
+ */
+export type PricingBasis = "CREATED" | "DELIVERED" | "CREATED_DELIVERED";
+
 export interface PricingClientRow {
   customerId: string;
   customerName: string;
@@ -206,6 +215,8 @@ export interface PricingClientOrder {
   orderId: string;
   orderNumber: string;
   createdDate: string;
+  /** null — заказ ещё не доставлен. */
+  deliveredDate: string | null;
   senderCity: string | null;
   receiverCity: string | null;
   statusLabel: string;
