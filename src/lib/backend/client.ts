@@ -22,6 +22,7 @@ import type {
   ReceiptJournalRow,
   ReceiveResult,
   WarehouseRef,
+  ExportDataset,
   ExportKind,
   ExportRun,
   Health,
@@ -189,6 +190,11 @@ export function listCities(query: OrdersQuery = {}): Promise<CityRef[]> {
 }
 
 // ────────────────────────────── Выгрузки ──────────────────────────────
+
+/** Какие разделы платформы можно выгрузить этой роли. */
+export function listExportDatasets(): Promise<ExportDataset[]> {
+  return request("/exports/data/catalog");
+}
 
 export function listExports(
   params: { kind?: ExportKind; limit?: number } = {},

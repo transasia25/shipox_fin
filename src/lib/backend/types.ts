@@ -343,6 +343,23 @@ export interface CityRef {
   orders: number;
 }
 
+/** Фильтр, который раздел выгрузки умеет применять. Период есть у всех. */
+export type ExportFilter = "basis" | "customer" | "courier" | "hub" | "city" | "warehouse";
+
+/**
+ * Раздел выгрузки, как его описывает сервер.
+ *
+ * Попап строится по этому ответу целиком: чужие роли разделы в него не
+ * попадают, поэтому скрывать что-либо на экране не нужно.
+ */
+export interface ExportDataset {
+  id: string;
+  title: string;
+  hint: string;
+  filters: ExportFilter[];
+  columns: Array<{ key: string; header: string; optional: boolean }>;
+}
+
 export type ExportKind = "DAILY" | "WEEKLY";
 export type RunStatus = "IDLE" | "RUNNING" | "SUCCESS" | "FAILED";
 

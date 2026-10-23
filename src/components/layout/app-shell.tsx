@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Menu } from "lucide-react";
 import { AppSidebar, NavLinks } from "./app-sidebar";
+import { ExportButton } from "./export-dialog";
 import { PeriodPicker } from "./period-picker";
 import { canOpen, homeFor } from "./nav";
 import { useStoreHydrated } from "@/hooks/use-data";
@@ -50,6 +51,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur lg:px-6">
           <MobileNav role={user.role} />
           <div className="flex flex-wrap items-center gap-3">
+            {/* Выгрузка живёт в шапке: она нужна с любого экрана. */}
+            <ExportButton />
             <PeriodPicker />
             <div className="flex items-center gap-2 border-l border-border pl-3 text-sm">
               <span className="hidden sm:inline">
