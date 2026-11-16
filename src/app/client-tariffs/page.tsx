@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ErrorState } from "@/components/ui-kit/error-state";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { useBackend } from "@/hooks/use-backend";
@@ -24,9 +25,17 @@ import type {
   TariffSurcharge,
   TariffVersionDetail,
   TariffZoneGrid,
+  TariffZoneMatrix,
 } from "@/lib/backend/types";
 import { formatDate, formatNumber, formatPrice, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  amountLabels,
+  buildSurchargeGroups,
+  surchargeWeightLabel,
+  type SurchargeKind,
+} from "./surcharge-lines";
+import { destinationsByZone, referenceHub, zoneHint, zoneIssues } from "./zones";
 
 const MATCH_LABEL: Record<TariffMatchSource, string> = {
   INN: "по ИНН",
@@ -63,6 +72,8 @@ export default function ClientTariffsPage() {
     () => listClientTariffs({ refresh: refreshToken > 0 }),
     [refreshToken],
   );
+  // Зоны общие для всех планов: нужны и подсказкам в таблице цен, и блоку зон внизу.
+  const zones = useBackend(() => getTariffZones(), []);
   const [selected, setSelected] = useState<ClientTariffRow | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
 
@@ -136,7 +147,12 @@ export default function ClientTariffsPage() {
 
           <div ref={detailRef} className="scroll-mt-4">
             {selected?.plan ? (
-              <VersionDetail key={selected.plan.versionId} client={selected} plan={selected.plan} />
+              <VersionDetail
+                key={selected.plan.versionId}
+                client={selected}
+                plan={selected.plan}
+                zones={zones.data ?? null}
+              />
             ) : selected ? (
               <Card className="p-4 text-sm text-muted-foreground">
                 На {formatDay(data.date)} у клиента «{selected.shipoxCustomerName}» нет действующей версии
@@ -151,7 +167,7 @@ export default function ClientTariffsPage() {
         </>
       )}
 
-      <ZoneMatrix />
+      <ZoneMatrix zones={zones} />
     </div>
   );
 }
@@ -236,10 +252,7 @@ function ClientsTable({
                 <span>{plan.planName}</span>
                 {provisional && <Badge variant="outline">по умолчанию · предв.</Badge>}
               </div>
-              <div className="text-xs text-muted-foreground">
-                {plan.versionName ? `«${plan.versionName}», ` : ""}
-                {validity(plan)}
-              </div>
+              <div className="text-xs text-muted-foreground">действует {validity(plan)}</div>
             </div>
           );
         },
@@ -277,7 +290,15 @@ function ClientsTable({
   );
 }
 
-function VersionDetail({ client, plan }: { client: ClientTariffRow; plan: TariffPlanRef }) {
+function VersionDetail({
+  client,
+  plan,
+  zones,
+}: {
+  client: ClientTariffRow;
+  plan: TariffPlanRef;
+  zones: TariffZoneMatrix | null;
+}) {
   const version = useBackend(() => getTariffVersion(plan.versionId), [plan.versionId]);
   const detail = version.data;
 
@@ -293,8 +314,29 @@ function VersionDetail({ client, plan }: { client: ClientTariffRow; plan: Tariff
           {client.provisional && <Badge variant="outline">предварительно</Badge>}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Версия {plan.versionName ? `«${plan.versionName}» ` : ""}
-          действует {validity(plan)}
+          Действует {validity(plan)}
+          {plan.versionName && (
+            <>
+              {" · "}
+              <Tooltip>
+                <TooltipTrigger className="cursor-help underline decoration-dotted underline-offset-4">
+                  версия «{plan.versionName}»
+                </TooltipTrigger>
+                <TooltipContent className="block max-w-sm space-y-1 text-left">
+                  <span className="block">
+                    Название версии плана в калькуляторе. Когда цены меняются, заводят новую версию с
+                    новой датой начала, а старая остаётся для расчётов за прошлые периоды.
+                  </span>
+                  {plan.versionName === "2026-Initial" && (
+                    <span className="block opacity-80">
+                      «2026-Initial» — версии, перенесённые из старой схемы калькулятора в начале 2026
+                      года.
+                    </span>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
           {detail && (
             <>
               {" · "}
@@ -322,14 +364,20 @@ function VersionDetail({ client, plan }: { client: ClientTariffRow; plan: Tariff
         ) : !detail ? (
           <Skeleton className="h-64" />
         ) : (
-          <VersionBody detail={detail} />
+          <VersionBody detail={detail} zones={zones} />
         )}
       </CardContent>
     </Card>
   );
 }
 
-function VersionBody({ detail }: { detail: TariffVersionDetail }) {
+function VersionBody({
+  detail,
+  zones,
+}: {
+  detail: TariffVersionDetail;
+  zones: TariffZoneMatrix | null;
+}) {
   const serviceTypes = detail.serviceTypes;
   const serviceName = useCallback(
     (id: number | null) =>
@@ -377,12 +425,13 @@ function VersionBody({ detail }: { detail: TariffVersionDetail }) {
             <h3 className="text-sm font-semibold">Цены по зонам</h3>
             <p className="text-xs text-muted-foreground">
               Цена — для веса, с которого начинается строка; «+N/кг» — доплата за каждый следующий
-              килограмм. Вес округляется вверх. Зона 0 — внутри одного хаба; какая зона между какими
-              хабами — в матрице внизу страницы. Надбавки прибавляются сверху.
+              килограмм. Вес округляется вверх. Наведите на зону, чтобы увидеть, какие это
+              направления; все зоны — в блоке «Зоны доставки» внизу страницы. Надбавки ниже
+              прибавляются сверху.
             </p>
           </div>
           {detail.zoneGrids.length === 1 ? (
-            <ZoneGridTable grid={detail.zoneGrids[0]} />
+            <ZoneGridTable grid={detail.zoneGrids[0]} zones={zones} />
           ) : (
             <Tabs defaultValue={String(detail.zoneGrids[0].serviceTypeId)}>
               <TabsList>
@@ -394,7 +443,7 @@ function VersionBody({ detail }: { detail: TariffVersionDetail }) {
               </TabsList>
               {detail.zoneGrids.map((grid) => (
                 <TabsContent key={String(grid.serviceTypeId)} value={String(grid.serviceTypeId)}>
-                  <ZoneGridTable grid={grid} />
+                  <ZoneGridTable grid={grid} zones={zones} />
                 </TabsContent>
               ))}
             </Tabs>
@@ -434,7 +483,26 @@ function PriceValue({ cell }: { cell: TariffPriceCell }) {
   );
 }
 
-function ZoneGridTable({ grid }: { grid: TariffZoneGrid }) {
+function ZoneHeader({ zone, zones }: { zone: number; zones: TariffZoneMatrix | null }) {
+  const hint = zoneHint(zones, zone);
+  return (
+    <Tooltip>
+      <TooltipTrigger className="inline-flex cursor-help items-center gap-1 underline decoration-dotted underline-offset-4">
+        Зона {zone}
+      </TooltipTrigger>
+      <TooltipContent className="block max-w-xs space-y-1 text-left">
+        <span className="block font-medium">{hint.title}</span>
+        {hint.lines.map((line) => (
+          <span key={line} className="block opacity-90">
+            {line}
+          </span>
+        ))}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ZoneGridTable({ grid, zones }: { grid: TariffZoneGrid; zones: TariffZoneMatrix | null }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-sm">
@@ -443,7 +511,7 @@ function ZoneGridTable({ grid }: { grid: TariffZoneGrid }) {
             <th className="px-3 py-2 text-left font-medium">Вес</th>
             {grid.zones.map((zone) => (
               <th key={zone} className="px-3 py-2 text-right font-medium">
-                Зона {zone}
+                <ZoneHeader zone={zone} zones={zones} />
               </th>
             ))}
           </tr>
@@ -577,29 +645,17 @@ function RouteRulesTable({
   );
 }
 
-function surchargeAmount(item: TariffSurcharge): string {
-  const amount = formatPrice(item.amount);
-  switch (item.amountType) {
-    case "FIXED":
-      return `+${amount}`;
-    case "PER_KG":
-      return `+${amount} × вес, кг`;
-    case "PER_KG_OVER":
-      return `+${amount} за кг сверх ${formatNumber(item.overKg ?? 0)}`;
-    case "PER_BOX":
-      return `+${amount} за место`;
-    case "PERCENT":
-      return `+${amount}% от цены`;
-    default:
-      return `${amount} (${item.amountType})`;
-  }
-}
-
-function endpoint(isHub: boolean | null, fallback: string): string {
-  if (isHub === true) return "хаб";
-  if (isHub === false) return "район";
-  return fallback;
-}
+const KIND_BADGE: Record<SurchargeKind, { label: string; hint: string } | null> = {
+  surcharge: null,
+  discount: {
+    label: "скидка",
+    hint: "Сумма с минусом: уменьшает цену. Так в калькуляторе отменяют доплату для отдельных городов или дают скидку.",
+  },
+  adjustment: {
+    label: "поправка",
+    hint: "Часть суммы с плюсом, часть с минусом: так в калькуляторе подгоняют стандартную цену под договорную.",
+  },
+};
 
 function SurchargesTable({
   surcharges,
@@ -608,117 +664,329 @@ function SurchargesTable({
   surcharges: TariffSurcharge[];
   serviceName: (id: number | null) => string;
 }) {
+  const groups = useMemo(() => buildSurchargeGroups(surcharges), [surcharges]);
+  const lines = groups.flatMap((group) => group.lines);
+  const showService = lines.some((line) => line.serviceTypeIds !== null);
+  const columnCount = showService ? 4 : 3;
+
   return (
     <section className="space-y-2">
       <div>
-        <h3 className="text-sm font-semibold">Надбавки</h3>
+        <h3 className="text-sm font-semibold">Доплаты и скидки</h3>
         <p className="text-xs text-muted-foreground">
-          Прибавляются к цене по зоне или маршруту. Если подходит несколько надбавок, они
-          складываются. «Хаб» — город-хаб, «район» — город при хабе.
+          Прибавляются к цене из таблицы выше. Если к заказу подходит несколько строк, они
+          складываются. «Хаб» — город-хаб, «район» — город при хабе. Вес округляется вверх, границы
+          включительно: заказ 5,3 кг считается как 6 кг.
         </p>
       </div>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Откуда → куда</th>
-              <th className="px-3 py-2 text-left font-medium">Услуга</th>
-              <th className="px-3 py-2 text-right font-medium">Вес, кг</th>
-              <th className="px-3 py-2 text-right font-medium">Надбавка</th>
+              <th className="px-3 py-2 text-left font-medium">Вес</th>
+              {showService && <th className="px-3 py-2 text-left font-medium">Услуга</th>}
+              <th className="px-3 py-2 text-right font-medium">Сумма</th>
+              <th className="px-3 py-2 text-left font-medium">Пояснение</th>
             </tr>
           </thead>
-          <tbody>
-            {surcharges.map((item) => (
-              <tr key={item.id} className="border-t border-border" title={item.name ?? undefined}>
-                <td className="px-3 py-2">
-                  {endpoint(item.fromIsHub, "откуда угодно")} →{" "}
-                  {item.toCity ?? endpoint(item.toIsHub, "куда угодно")}
-                </td>
-                <td className="px-3 py-2">{serviceName(item.serviceTypeId)}</td>
-                <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
-                  {item.weightTo === null
-                    ? `от ${formatNumber(item.weightFrom)}`
-                    : `${formatNumber(item.weightFrom)}–${formatNumber(item.weightTo)}`}
-                </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
-                  {surchargeAmount(item)}
-                </td>
+          {groups.map((group) => (
+            <tbody key={group.key}>
+              <tr className="border-t border-border bg-muted/30">
+                <th
+                  colSpan={columnCount}
+                  scope="colgroup"
+                  className="px-3 py-1.5 text-left text-xs font-semibold"
+                >
+                  {group.title}
+                </th>
               </tr>
-            ))}
-          </tbody>
+              {group.lines.map((line) => {
+                const badge = KIND_BADGE[line.kind];
+                return (
+                  <tr key={line.key} className="border-t border-border align-top">
+                    <td className="px-3 py-2 whitespace-nowrap tabular-nums">
+                      {surchargeWeightLabel(line.weightFrom, line.weightTo)}
+                    </td>
+                    {showService && (
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {line.serviceTypeIds === null
+                          ? "любая"
+                          : line.serviceTypeIds.map((id) => serviceName(id)).join(", ")}
+                      </td>
+                    )}
+                    <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
+                      {amountLabels(line.amounts).map((label, index) => (
+                        <div key={label} className={index === 0 ? "font-medium" : "text-muted-foreground"}>
+                          {label}
+                        </div>
+                      ))}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {badge && (
+                          <Tooltip>
+                            <TooltipTrigger render={<span />} className="cursor-help">
+                              <Badge variant={line.kind === "discount" ? "secondary" : "outline"}>
+                                {badge.label}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="block max-w-xs text-left">{badge.hint}</TooltipContent>
+                          </Tooltip>
+                        )}
+                        {line.names.length > 0 && (
+                          <span className="text-xs text-muted-foreground">{line.names.join("; ")}</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          ))}
         </table>
       </div>
     </section>
   );
 }
 
-function ZoneMatrix() {
-  const [open, setOpen] = useState(false);
+/**
+ * Шкала зон: один тон от светлого к тёмному — зона растёт вместе с расстоянием.
+ * Насыщенность невысокая, чтобы цифры поверх читались в обеих темах; номер
+ * зоны всегда подписан, цвет только помогает глазу.
+ */
+const ZONE_TINT = [
+  "bg-transparent",
+  "bg-primary/[0.06]",
+  "bg-primary/[0.12]",
+  "bg-primary/20",
+  "bg-primary/[0.28]",
+  "bg-primary/[0.36]",
+];
+
+function zoneTint(zone: number): string {
+  return ZONE_TINT[Math.min(Math.max(zone, 0), ZONE_TINT.length - 1)];
+}
+
+function ZoneMatrix({
+  zones,
+}: {
+  zones: { data: TariffZoneMatrix | null; error: string | null; reload: () => void };
+}) {
+  const [fromHubId, setFromHubId] = useState<number | null>(null);
+  const [showMatrix, setShowMatrix] = useState(false);
+
+  const matrix = zones.data;
+  const origin =
+    matrix?.hubs.find((hub) => hub.id === fromHubId) ?? (matrix ? referenceHub(matrix) : null);
 
   return (
-    <Card className="gap-3 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-base font-medium">Зоны между хабами</div>
-          <p className="text-sm text-muted-foreground">
-            Общая для всех планов: по хабу отправления и хабу назначения калькулятор определяет зону.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setOpen((value) => !value)}>
-          {open ? "Скрыть" : "Показать матрицу"}
-        </Button>
+    <Card className="gap-4 p-4">
+      <div className="space-y-1">
+        <div className="text-base font-medium">Зоны доставки</div>
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          Цена в плане зависит от зоны и веса. Зону калькулятор определяет по хабам отправителя и
+          получателя: 0 — внутри одного хаба, чем больше номер, тем дальше. Город-район относится к
+          своему хабу: заказ из Ташкента в Чирчик — это зона 0. Зоны одинаковые для всех планов.
+        </p>
       </div>
-      {open && <ZoneMatrixTable />}
+
+      {zones.error ? (
+        <ErrorState message={zones.error} onRetry={zones.reload} />
+      ) : !matrix || !origin ? (
+        <Skeleton className="h-40" />
+      ) : (
+        <>
+          <div className="space-y-2">
+            <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Откуда
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {matrix.hubs.map((hub) => (
+                <Button
+                  key={hub.id}
+                  size="sm"
+                  variant={hub.id === origin.id ? "default" : "outline"}
+                  aria-pressed={hub.id === origin.id}
+                  onClick={() => setFromHubId(hub.id)}
+                >
+                  {hub.name}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <ZoneDestinations matrix={matrix} originId={origin.id} originName={origin.name} />
+
+          <ZoneIssuesNote matrix={matrix} />
+
+          <div className="space-y-3">
+            <Button variant="outline" size="sm" onClick={() => setShowMatrix((value) => !value)}>
+              {showMatrix ? "Скрыть таблицу всех хабов" : "Таблица всех хабов"}
+            </Button>
+            {showMatrix && (
+              <ZoneMatrixTable matrix={matrix} originId={origin.id} onSelectOrigin={setFromHubId} />
+            )}
+          </div>
+        </>
+      )}
     </Card>
   );
 }
 
-function ZoneMatrixTable() {
-  const zones = useBackend(() => getTariffZones(), []);
-  if (zones.error) return <ErrorState message={zones.error} onRetry={zones.reload} />;
-  if (!zones.data) return <Skeleton className="h-64" />;
+function ZoneIssuesNote({ matrix }: { matrix: TariffZoneMatrix }) {
+  const issues = useMemo(() => zoneIssues(matrix), [matrix]);
+  if (issues.asymmetric.length === 0 && issues.withoutZones.length === 0) return null;
+  return (
+    <div className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <div className="space-y-1">
+        <div className="font-medium">Похоже на ошибки в матрице зон калькулятора</div>
+        {issues.asymmetric.length > 0 && (
+          <div>
+            Туда и обратно — разные зоны, поэтому и цена разная:{" "}
+            {issues.asymmetric
+              .map((item) => `${item.a} → ${item.b}: ${item.there}, обратно ${item.back}`)
+              .join("; ")}
+            .
+          </div>
+        )}
+        {issues.withoutZones.length > 0 && (
+          <div>
+            Нет ни одной зоны у {plural(issues.withoutZones.length, "хаба", "хабов", "хабов")}{" "}
+            {issues.withoutZones.join(", ")}: заказы через него калькулятор по зонам не посчитает.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-  const { hubs, cells } = zones.data;
+function ZoneDestinations({
+  matrix,
+  originId,
+  originName,
+}: {
+  matrix: TariffZoneMatrix;
+  originId: number;
+  originName: string;
+}) {
+  const byZone = destinationsByZone(matrix, originId);
+  if (byZone.size === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Для хаба {originName} в матрице нет зон: калькулятор не посчитает заказы из него по зонам.
+      </p>
+    );
+  }
+  return (
+    <div className="divide-y divide-border rounded-lg border border-border">
+      {[...byZone.entries()].map(([zone, hubs]) => (
+        <div key={zone} className="grid grid-cols-[6.5rem_1fr] items-baseline gap-3 px-3 py-2 text-sm">
+          <span
+            className={cn(
+              "inline-flex w-fit items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium tabular-nums",
+              zoneTint(zone),
+            )}
+          >
+            Зона {zone}
+          </span>
+          <span className="min-w-0">
+            {zone === 0 ? (
+              <>
+                {originName} и районы при нём
+                <span className="text-muted-foreground"> — внутри одного хаба</span>
+              </>
+            ) : (
+              hubs.map((hub) => hub.name).join(", ")
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ZoneMatrixTable({
+  matrix,
+  originId,
+  onSelectOrigin,
+}: {
+  matrix: TariffZoneMatrix;
+  originId: number;
+  onSelectOrigin: (hubId: number) => void;
+}) {
+  const { hubs, cells } = matrix;
   const zoneOf = new Map(cells.map((cell) => [`${cell.fromHubId}|${cell.toHubId}`, cell.zone]));
+  const maxZone = Math.max(0, ...cells.map((cell) => cell.zone));
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="text-xs">
-        <thead className="bg-muted/50 text-muted-foreground">
-          <tr>
-            <th className="sticky left-0 bg-muted px-2 py-2 text-left font-medium">Откуда \ куда</th>
-            {hubs.map((hub) => (
-              <th key={hub.id} className="px-2 py-2 text-center font-medium whitespace-nowrap">
-                {hub.name}
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <span>Ближе</span>
+        {Array.from({ length: maxZone + 1 }, (_, zone) => (
+          <span
+            key={zone}
+            className={cn(
+              "inline-flex size-6 items-center justify-center rounded border border-border font-medium text-foreground tabular-nums",
+              zoneTint(zone),
+            )}
+          >
+            {zone}
+          </span>
+        ))}
+        <span>Дальше</span>
+        <span className="ml-2">Строка — откуда, столбец — куда. Нажмите на хаб слева, чтобы выбрать его выше.</span>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="text-xs">
+          <thead className="bg-muted/50 text-muted-foreground">
+            <tr>
+              <th className="sticky left-0 z-10 bg-muted px-2 py-2 text-left font-medium">
+                Откуда ↓ · куда →
               </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {hubs.map((from) => (
-            <tr key={from.id} className="border-t border-border">
-              <th className="sticky left-0 bg-card px-2 py-1.5 text-left font-medium whitespace-nowrap">
-                {from.name}
-              </th>
-              {hubs.map((to) => {
-                const zone = zoneOf.get(`${from.id}|${to.id}`);
-                return (
-                  <td
-                    key={to.id}
-                    className={cn(
-                      "px-2 py-1.5 text-center tabular-nums",
-                      zone === 0 && "bg-muted font-medium",
-                      zone === undefined && "text-muted-foreground/50",
-                    )}
-                  >
-                    {zone ?? "—"}
-                  </td>
-                );
-              })}
+              {hubs.map((hub) => (
+                <th key={hub.id} className="px-2 py-2 text-center font-medium whitespace-nowrap">
+                  {hub.name}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {hubs.map((from) => {
+              const selected = from.id === originId;
+              return (
+                <tr key={from.id} className={cn("border-t border-border", selected && "outline-2 -outline-offset-2 outline-primary")}>
+                  <th className="sticky left-0 z-10 bg-card px-2 py-1 text-left font-medium whitespace-nowrap">
+                    <button
+                      type="button"
+                      className={cn("rounded px-1 py-0.5 hover:bg-muted", selected && "font-semibold")}
+                      aria-pressed={selected}
+                      onClick={() => onSelectOrigin(from.id)}
+                    >
+                      {from.name}
+                    </button>
+                  </th>
+                  {hubs.map((to) => {
+                    const zone = zoneOf.get(`${from.id}|${to.id}`);
+                    return (
+                      <td
+                        key={to.id}
+                        title={zone === undefined ? `${from.name} → ${to.name}: нет зоны` : `${from.name} → ${to.name}: зона ${zone}`}
+                        className={cn(
+                          "min-w-9 px-2 py-1.5 text-center font-medium tabular-nums",
+                          zone === undefined ? "text-muted-foreground/50" : zoneTint(zone),
+                        )}
+                      >
+                        {zone ?? "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
