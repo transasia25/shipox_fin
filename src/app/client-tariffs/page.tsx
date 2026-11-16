@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ErrorState } from "@/components/ui-kit/error-state";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { useBackend } from "@/hooks/use-backend";
@@ -64,6 +64,40 @@ function weightLabel(from: number, to: number | null): string {
 
 function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9а-яё]+/g, "");
+}
+
+/**
+ * Подсказка к термину. Всплывающая панель, а не тултип: открывается и при
+ * наведении, и по клику или касанию — тултип по клику закрывается, а на
+ * телефоне и вовсе не появляется.
+ */
+function Hint({
+  label,
+  children,
+  className,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        closeDelay={100}
+        className={cn(
+          "cursor-help rounded-sm underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+          className,
+        )}
+      >
+        {label}
+      </PopoverTrigger>
+      <PopoverContent side="top" className="w-auto max-w-xs gap-1 text-left text-xs leading-relaxed">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function ClientTariffsPage() {
@@ -318,23 +352,18 @@ function VersionDetail({
           {plan.versionName && (
             <>
               {" · "}
-              <Tooltip>
-                <TooltipTrigger className="cursor-help underline decoration-dotted underline-offset-4">
-                  версия «{plan.versionName}»
-                </TooltipTrigger>
-                <TooltipContent className="block max-w-sm space-y-1 text-left">
-                  <span className="block">
-                    Название версии плана в калькуляторе. Когда цены меняются, заводят новую версию с
-                    новой датой начала, а старая остаётся для расчётов за прошлые периоды.
-                  </span>
-                  {plan.versionName === "2026-Initial" && (
-                    <span className="block opacity-80">
-                      «2026-Initial» — версии, перенесённые из старой схемы калькулятора в начале 2026
-                      года.
-                    </span>
-                  )}
-                </TooltipContent>
-              </Tooltip>
+              <Hint label={<>версия «{plan.versionName}»</>}>
+                <p>
+                  Название версии плана в калькуляторе. Когда цены меняются, заводят новую версию с
+                  новой датой начала, а старая остаётся для расчётов за прошлые периоды.
+                </p>
+                {plan.versionName === "2026-Initial" && (
+                  <p className="text-muted-foreground">
+                    «2026-Initial» — версии, перенесённые из старой схемы калькулятора в начале 2026
+                    года.
+                  </p>
+                )}
+              </Hint>
             </>
           )}
           {detail && (
@@ -425,7 +454,7 @@ function VersionBody({
             <h3 className="text-sm font-semibold">Цены по зонам</h3>
             <p className="text-xs text-muted-foreground">
               Цена — для веса, с которого начинается строка; «+N/кг» — доплата за каждый следующий
-              килограмм. Вес округляется вверх. Наведите на зону, чтобы увидеть, какие это
+              килограмм. Вес округляется вверх. Наведите на зону или нажмите на неё, чтобы увидеть, какие это
               направления; все зоны — в блоке «Зоны доставки» внизу страницы. Надбавки ниже
               прибавляются сверху.
             </p>
@@ -486,19 +515,14 @@ function PriceValue({ cell }: { cell: TariffPriceCell }) {
 function ZoneHeader({ zone, zones }: { zone: number; zones: TariffZoneMatrix | null }) {
   const hint = zoneHint(zones, zone);
   return (
-    <Tooltip>
-      <TooltipTrigger className="inline-flex cursor-help items-center gap-1 underline decoration-dotted underline-offset-4">
-        Зона {zone}
-      </TooltipTrigger>
-      <TooltipContent className="block max-w-xs space-y-1 text-left">
-        <span className="block font-medium">{hint.title}</span>
-        {hint.lines.map((line) => (
-          <span key={line} className="block opacity-90">
-            {line}
-          </span>
-        ))}
-      </TooltipContent>
-    </Tooltip>
+    <Hint label={`Зона ${zone}`}>
+      <p className="font-medium">{hint.title}</p>
+      {hint.lines.map((line) => (
+        <p key={line} className="text-muted-foreground">
+          {line}
+        </p>
+      ))}
+    </Hint>
   );
 }
 
@@ -724,14 +748,16 @@ function SurchargesTable({
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1.5">
                         {badge && (
-                          <Tooltip>
-                            <TooltipTrigger render={<span />} className="cursor-help">
+                          <Hint
+                            className="no-underline"
+                            label={
                               <Badge variant={line.kind === "discount" ? "secondary" : "outline"}>
                                 {badge.label}
                               </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent className="block max-w-xs text-left">{badge.hint}</TooltipContent>
-                          </Tooltip>
+                            }
+                          >
+                            <p>{badge.hint}</p>
+                          </Hint>
                         )}
                         {line.names.length > 0 && (
                           <span className="text-xs text-muted-foreground">{line.names.join("; ")}</span>
