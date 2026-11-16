@@ -8,6 +8,7 @@ import {
   Route,
   ScanBarcode,
   ScanSearch,
+  Tags,
   Truck,
   TruckElectric,
   Wallet,
@@ -79,6 +80,8 @@ export const NAV: NavItem[] = [
   { href: "/transit", label: "Межгород", icon: Route, roles: TRANSIT },
   { href: "/carriers", label: "Перевозчики", icon: TruckElectric, roles: TRANSIT },
   { href: "/clients", label: "Клиенты и расчёты", icon: Users, roles: OFFICE },
+  // Цены клиентов: только офису, как и расчёты с клиентами.
+  { href: "/client-tariffs", label: "Тарифы клиентов", icon: Tags, roles: OFFICE },
   { href: "/exports", label: "Выгрузки", icon: Download, roles: OFFICE },
   { href: "/users", label: "Пользователи", icon: UserCog, roles: ["ADMIN"] },
 ];

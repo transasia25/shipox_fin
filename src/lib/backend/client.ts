@@ -1,5 +1,8 @@
 import type {
   AssignedOrder,
+  ClientTariffs,
+  TariffVersionDetail,
+  TariffZoneMatrix,
   Carrier,
   CarrierInput,
   FinanceProfit,
@@ -286,6 +289,25 @@ export function runPricing(
   body: { from?: string; to?: string; force?: boolean } = {},
 ): Promise<PricingRunResult> {
   return request("/pricing/run", { method: "POST", body: JSON.stringify(body) });
+}
+
+// ─────────── Тарифы клиентов (калькулятор в Supabase, только чтение) ───────────
+
+/** По какому плану калькулятора считается каждый клиент Shipox. */
+export function listClientTariffs(
+  query: { date?: string; refresh?: boolean } = {},
+): Promise<ClientTariffs> {
+  return request("/client-tariffs", { params: { date: query.date, refresh: query.refresh || undefined } });
+}
+
+/** Содержимое версии плана: цены по зонам, по маршрутам и надбавки. */
+export function getTariffVersion(versionId: number): Promise<TariffVersionDetail> {
+  return request(`/client-tariffs/versions/${versionId}`);
+}
+
+/** Матрица зон «хаб → хаб». */
+export function getTariffZones(): Promise<TariffZoneMatrix> {
+  return request("/client-tariffs/zones");
 }
 
 // ──────────────────────── Приёмка на складе ────────────────────────
