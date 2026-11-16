@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
+import { ThemeProvider } from "@/components/layout/theme";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -25,10 +26,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="ru"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // next-themes ставит класс темы до гидрации — расхождение ожидаемое.
+      suppressHydrationWarning
     >
       <body className="min-h-full">
-        <AppShell>{children}</AppShell>
-        <Toaster position="top-right" />
+        <ThemeProvider>
+          <AppShell>{children}</AppShell>
+          <Toaster position="top-right" />
+        </ThemeProvider>
       </body>
     </html>
   );

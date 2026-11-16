@@ -7,6 +7,7 @@ import { AppSidebar, NavLinks } from "./app-sidebar";
 import { ExportButton } from "./export-dialog";
 import { PeriodPicker } from "./period-picker";
 import { canOpen, homeFor } from "./nav";
+import { ThemeToggle } from "./theme";
 import { useStoreHydrated } from "@/hooks/use-data";
 import { ROLE_LABEL, signOut, useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {user.warehouse ? ` · ${user.warehouse}` : ""}
                 </span>
               </span>
+              <ThemeToggle />
               <Button
                 variant="ghost"
                 size="icon-sm"
