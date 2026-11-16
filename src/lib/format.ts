@@ -28,6 +28,18 @@ export function formatMoneyShort(value: number): string {
   return formatMoney(value);
 }
 
+const priceFormatter = new Intl.NumberFormat("ru-RU", {
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Тарифная ставка как есть, с копейками: 89285.71 → «89 285,71». Округлять
+ * нельзя: по дробной ставке видно, что её завели за вычетом НДС.
+ */
+export function formatPrice(value: number): string {
+  return priceFormatter.format(value);
+}
+
 export function formatNumber(value: number): string {
   return numberFormatter.format(value);
 }

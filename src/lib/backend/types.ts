@@ -1204,3 +1204,113 @@ export interface ScanSummary {
     orders: number;
   }>;
 }
+
+// ─────────────── Тарифы клиентов (калькулятор в Supabase, только чтение) ───────────────
+
+/** Как клиент Shipox связан с клиентом калькулятора. */
+export type TariffMatchSource = "INN" | "NAME" | "MANUAL" | "DEFAULT";
+
+/** Версия тарифного плана калькулятора. */
+export interface TariffPlanRef {
+  versionId: number;
+  versionName: string | null;
+  validFrom: string | null;
+  validTo: string | null;
+  planId: number | null;
+  planName: string;
+  isDefault: boolean;
+}
+
+export interface ClientTariffRow {
+  shipoxCustomerId: string;
+  shipoxCustomerName: string;
+  orders: number;
+  calculatorClient: { id: number; name: string } | null;
+  /** `null` — связь ещё не собиралась: соберётся при следующем расчёте. */
+  matchedBy: TariffMatchSource | null;
+  confirmed: boolean;
+  /** Считается по плану по умолчанию — сумма предварительная. */
+  provisional: boolean;
+  plan: TariffPlanRef | null;
+}
+
+export interface ClientTariffs {
+  date: string;
+  defaultPlan: {
+    calculatorClientId: number;
+    calculatorClientName: string | null;
+    plan: TariffPlanRef | null;
+  };
+  /** Отдельная машина (тип 05): наше правило, одно для всех клиентов. */
+  separate: { base: number; perKg: number; maxKg: number };
+  clients: ClientTariffRow[];
+}
+
+export interface TariffPriceCell {
+  ruleId: number;
+  /** Цена при весе, с которого начинается строка; для цены за место — за одно место. */
+  price: number | null;
+  perUnit: boolean;
+  extraPerKg: number;
+  ruleWeightFrom: number;
+  priority: number | null;
+  /** Два правила с одним приоритетом и порогом — калькулятор выберет любое. */
+  ambiguous: boolean;
+}
+
+export interface TariffZoneGrid {
+  serviceTypeId: number | null;
+  zones: number[];
+  rows: Array<{ weightFrom: number; weightTo: number | null; cells: Array<TariffPriceCell | null> }>;
+}
+
+export interface TariffRouteRule {
+  id: number;
+  kind: "CITY" | "HUB";
+  serviceTypeId: number | null;
+  from: string | null;
+  to: string | null;
+  isLocal: boolean | null;
+  weightFrom: number;
+  basePrice: number | null;
+  extraPerKg: number | null;
+  pricePerUnit: number | null;
+  priority: number | null;
+}
+
+export type TariffSurchargeType = "FIXED" | "PER_KG" | "PER_KG_OVER" | "PER_BOX" | "PERCENT";
+
+export interface TariffSurcharge {
+  id: number;
+  name: string | null;
+  serviceTypeId: number | null;
+  fromIsHub: boolean | null;
+  toIsHub: boolean | null;
+  toCity: string | null;
+  weightFrom: number;
+  weightTo: number | null;
+  amount: number;
+  amountType: TariffSurchargeType | string;
+  /** Для «за кг сверх»: порог, после которого начисляется надбавка. */
+  overKg: number | null;
+  priority: number | null;
+}
+
+export interface TariffVersionDetail extends TariffPlanRef {
+  status: string | null;
+  notes: string | null;
+  planDescription: string | null;
+  assignedClients: Array<{ id: number; name: string; validFrom: string | null; validTo: string | null }>;
+  serviceTypes: Array<{ id: number; code: string; name: string }>;
+  zoneGrids: TariffZoneGrid[];
+  routeRules: TariffRouteRule[];
+  surcharges: TariffSurcharge[];
+  /** Правила, которые калькулятор не выберет ни для одного заказа. */
+  unreachableRules: number;
+  priceRuleCount: number;
+}
+
+export interface TariffZoneMatrix {
+  hubs: Array<{ id: number; name: string }>;
+  cells: Array<{ fromHubId: number; toHubId: number; zone: number }>;
+}
