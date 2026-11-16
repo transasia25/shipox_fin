@@ -92,8 +92,12 @@ function addAmount(target: SurchargeAmounts, item: TariffSurcharge): void {
       else target.perKgOver.push({ overKg, amount: item.amount });
       return;
     }
-    default:
-      target.other.push({ type: item.amountType, amount: item.amount });
+    default: {
+      // Тип, которого страница не знает: складываем по типу, как и остальные части.
+      const existing = target.other.find((part) => part.type === item.amountType);
+      if (existing) existing.amount += item.amount;
+      else target.other.push({ type: item.amountType, amount: item.amount });
+    }
   }
 }
 
@@ -279,20 +283,34 @@ export function routeTitle(line: Pick<SurchargeLine, "from" | "to" | "toCities">
   return ROUTE_TITLE[`${line.from}>${line.to}`];
 }
 
-/** Город из названия больше не нужен, когда он в заголовке группы: «Исключение доп.город: Kogon». */
-function withoutCity(name: string, city: string): string {
-  return name.replace(city, "").replace(/[\s:,—-]+$/, "").trim();
+const SEPARATORS = "\\s:,;—–-";
+
+/**
+ * Город из названия больше не нужен, когда он в заголовке группы:
+ * «Исключение доп.город: Kogon» → «Исключение доп.город». Вырезается только
+ * отдельное слово: «Kogonsk» при городе «Kogon» остаётся как есть.
+ */
+export function withoutCity(name: string, city: string): string {
+  const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const word = new RegExp(`(^|[${SEPARATORS}])${escaped}(?=$|[${SEPARATORS}])`, "gu");
+  return name
+    .replace(word, "$1")
+    .replace(new RegExp(`^[${SEPARATORS}]+|[${SEPARATORS}]+$`, "gu"), "")
+    .replace(/\s{2,}/g, " ");
 }
 
 /** Шаг 4: города с одинаковым набором строк — в одну группу. */
 function mergeCityGroups(groups: SurchargeGroup[]): SurchargeGroup[] {
-  const signature = (group: SurchargeGroup) =>
-    group.lines
-      .map((line) =>
-        [line.from, line.to, serviceKey(line.serviceTypeIds), line.weightFrom, line.weightTo ?? "", amountsSignature(line.amounts)].join("#"),
-      )
-      .sort()
-      .join("/");
+  const lineSignature = (line: SurchargeLine) =>
+    [
+      line.from,
+      line.to,
+      serviceKey(line.serviceTypeIds),
+      line.weightFrom,
+      line.weightTo ?? "",
+      amountsSignature(line.amounts),
+    ].join("#");
+  const signature = (group: SurchargeGroup) => group.lines.map(lineSignature).sort().join("/");
 
   const result: SurchargeGroup[] = [];
   const bySignature = new Map<string, SurchargeGroup[]>();
@@ -313,15 +331,12 @@ function mergeCityGroups(groups: SurchargeGroup[]): SurchargeGroup[] {
     }
     const cities = similar.map((group) => group.lines[0].toCities![0]).sort((a, b) => a.localeCompare(b));
     const [first, ...rest] = similar;
+    // Пару строке ищем по полной подписи (включая сумму) и забираем её из
+    // списка: у двух строк с одним весом, но разной суммой пары не перепутаются.
+    const pools = rest.map((group) => [...group.lines]);
     const lines = first.lines.map((line) => {
-      const twins = rest.map((group) =>
-        group.lines.find(
-          (other) =>
-            other.weightFrom === line.weightFrom &&
-            other.weightTo === line.weightTo &&
-            serviceKey(other.serviceTypeIds) === serviceKey(line.serviceTypeIds),
-        )!,
-      );
+      const sig = lineSignature(line);
+      const twins = pools.map((pool) => pool.splice(pool.findIndex((other) => lineSignature(other) === sig), 1)[0]);
       const names = uniq(
         [line, ...twins].flatMap((item) => item.names.map((name) => withoutCity(name, item.toCities![0]))),
       ).filter(Boolean);

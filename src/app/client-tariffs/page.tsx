@@ -35,7 +35,7 @@ import {
   surchargeWeightLabel,
   type SurchargeKind,
 } from "./surcharge-lines";
-import { destinationsByZone, referenceHub, zoneHint, zoneIssues } from "./zones";
+import { destinationsByZone, referenceHub, zoneHints, zoneIssues, zoneLookup, type ZoneHint } from "./zones";
 
 const MATCH_LABEL: Record<TariffMatchSource, string> = {
   INN: "по ИНН",
@@ -54,12 +54,6 @@ function validity(plan: Pick<TariffPlanRef, "validFrom" | "validTo">): string {
   return plan.validTo
     ? `с ${formatDay(plan.validFrom)} по ${formatDay(plan.validTo)}`
     : `с ${formatDay(plan.validFrom)}`;
-}
-
-function weightLabel(from: number, to: number | null): string {
-  if (to === null) return from <= 1 ? "любой вес" : `от ${formatNumber(from)} кг`;
-  if (from === to) return `${formatNumber(from)} кг`;
-  return `${formatNumber(from)}–${formatNumber(to)} кг`;
 }
 
 function normalize(text: string): string {
@@ -512,8 +506,8 @@ function PriceValue({ cell }: { cell: TariffPriceCell }) {
   );
 }
 
-function ZoneHeader({ zone, zones }: { zone: number; zones: TariffZoneMatrix | null }) {
-  const hint = zoneHint(zones, zone);
+function ZoneHeader({ zone, hint }: { zone: number; hint: ZoneHint | undefined }) {
+  if (!hint) return <>Зона {zone}</>;
   return (
     <Hint label={`Зона ${zone}`}>
       <p className="font-medium">{hint.title}</p>
@@ -527,6 +521,7 @@ function ZoneHeader({ zone, zones }: { zone: number; zones: TariffZoneMatrix | n
 }
 
 function ZoneGridTable({ grid, zones }: { grid: TariffZoneGrid; zones: TariffZoneMatrix | null }) {
+  const hints = useMemo(() => zoneHints(zones, grid.zones), [zones, grid.zones]);
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-sm">
@@ -535,7 +530,7 @@ function ZoneGridTable({ grid, zones }: { grid: TariffZoneGrid; zones: TariffZon
             <th className="px-3 py-2 text-left font-medium">Вес</th>
             {grid.zones.map((zone) => (
               <th key={zone} className="px-3 py-2 text-right font-medium">
-                <ZoneHeader zone={zone} zones={zones} />
+                <ZoneHeader zone={zone} hint={hints.get(zone)} />
               </th>
             ))}
           </tr>
@@ -544,7 +539,7 @@ function ZoneGridTable({ grid, zones }: { grid: TariffZoneGrid; zones: TariffZon
           {grid.rows.map((row) => (
             <tr key={row.weightFrom} className="border-t border-border align-top">
               <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
-                {weightLabel(row.weightFrom, row.weightTo)}
+                {surchargeWeightLabel(row.weightFrom, row.weightTo)}
               </td>
               {row.cells.map((cell, index) => (
                 <td key={grid.zones[index]} className="px-3 py-2 text-right">
@@ -740,7 +735,7 @@ function SurchargesTable({
                     )}
                     <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
                       {amountLabels(line.amounts).map((label, index) => (
-                        <div key={label} className={index === 0 ? "font-medium" : "text-muted-foreground"}>
+                        <div key={index} className={index === 0 ? "font-medium" : "text-muted-foreground"}>
                           {label}
                         </div>
                       ))}
@@ -818,8 +813,12 @@ function ZoneMatrix({
 
       {zones.error ? (
         <ErrorState message={zones.error} onRetry={zones.reload} />
-      ) : !matrix || !origin ? (
+      ) : !matrix ? (
         <Skeleton className="h-40" />
+      ) : !origin ? (
+        <p className="text-sm text-muted-foreground">
+          В калькуляторе не заведено ни одного хаба — зон нет, и цены по зонам не посчитаются.
+        </p>
       ) : (
         <>
           <div className="space-y-2">
@@ -861,7 +860,9 @@ function ZoneMatrix({
 
 function ZoneIssuesNote({ matrix }: { matrix: TariffZoneMatrix }) {
   const issues = useMemo(() => zoneIssues(matrix), [matrix]);
-  if (issues.asymmetric.length === 0 && issues.withoutZones.length === 0) return null;
+  if (issues.asymmetric.length === 0 && issues.missing.length === 0 && issues.withoutZones.length === 0) {
+    return null;
+  }
   return (
     <div className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
@@ -876,10 +877,23 @@ function ZoneIssuesNote({ matrix }: { matrix: TariffZoneMatrix }) {
             .
           </div>
         )}
+        {issues.missing.length > 0 && (
+          <div>
+            Нет зоны для {formatNumber(issues.missing.length)}{" "}
+            {plural(issues.missing.length, "направления", "направлений", "направлений")}, такие заказы не
+            посчитаются:{" "}
+            {issues.missing
+              .slice(0, 6)
+              .map((item) => `${item.from} → ${item.to}`)
+              .join("; ")}
+            {issues.missing.length > 6 ? ` и ещё ${formatNumber(issues.missing.length - 6)}` : ""}.
+          </div>
+        )}
         {issues.withoutZones.length > 0 && (
           <div>
-            Нет ни одной зоны у {plural(issues.withoutZones.length, "хаба", "хабов", "хабов")}{" "}
-            {issues.withoutZones.join(", ")}: заказы через него калькулятор по зонам не посчитает.
+            {issues.withoutZones.length === 1
+              ? `Нет ни одной зоны у хаба ${issues.withoutZones[0]}: заказы через него калькулятор по зонам не посчитает.`
+              : `Нет ни одной зоны у хабов ${issues.withoutZones.join(", ")}: заказы через них калькулятор по зонам не посчитает.`}
           </div>
         )}
       </div>
@@ -942,7 +956,7 @@ function ZoneMatrixTable({
   onSelectOrigin: (hubId: number) => void;
 }) {
   const { hubs, cells } = matrix;
-  const zoneOf = new Map(cells.map((cell) => [`${cell.fromHubId}|${cell.toHubId}`, cell.zone]));
+  const zoneOf = useMemo(() => zoneLookup(matrix), [matrix]);
   const maxZone = Math.max(0, ...cells.map((cell) => cell.zone));
 
   return (
@@ -993,7 +1007,7 @@ function ZoneMatrixTable({
                     </button>
                   </th>
                   {hubs.map((to) => {
-                    const zone = zoneOf.get(`${from.id}|${to.id}`);
+                    const zone = zoneOf(from.id, to.id);
                     return (
                       <td
                         key={to.id}

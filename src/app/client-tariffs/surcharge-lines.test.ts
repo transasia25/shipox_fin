@@ -4,6 +4,7 @@ import {
   amountLabels,
   buildSurchargeGroups,
   surchargeWeightLabel,
+  withoutCity,
   type SurchargeLine,
 } from "./surcharge-lines";
 
@@ -130,6 +131,34 @@ describe("buildSurchargeGroups", () => {
       [1, 2, 3],
       [1, 2, 3],
     ]);
+  });
+
+  it("при склейке городов не путает строки с одним весом и разной суммой", () => {
+    const cityRules = (city: string) => [
+      rule({ toCity: city, weightFrom: 0, weightTo: 5, amount: 100, name: `A ${city}` }),
+      rule({ toCity: city, weightFrom: 6, weightTo: 10, amount: 100, name: `A ${city}` }),
+      rule({ toCity: city, weightFrom: 0, weightTo: 10, amount: 50, name: `B ${city}` }),
+    ];
+    const [group] = buildSurchargeGroups([...cityRules("Xiva"), ...cityRules("Yangiyer")]);
+    expect(group.title).toBe("Доставка в Xiva, Yangiyer");
+    const byAmount = Object.fromEntries(group.lines.map((line) => [line.amounts.fixed, line.names]));
+    expect(byAmount).toEqual({ 100: ["A"], 50: ["B"] });
+    expect(group.lines.flatMap((line) => line.ruleIds)).toHaveLength(6);
+  });
+
+  it("складывает части неизвестного типа, а не повторяет их", () => {
+    const [group] = buildSurchargeGroups([
+      rule({ amount: 5000, amountType: "PER_PALLET" }),
+      rule({ amount: 5000, amountType: "PER_PALLET" }),
+    ]);
+    expect(plain(amountLabels(group.lines[0].amounts))).toEqual(["+10 000 (PER_PALLET)"]);
+  });
+
+  it("вырезает из названия город только отдельным словом", () => {
+    expect(withoutCity("Исключение доп.город: Kogon", "Kogon")).toBe("Исключение доп.город");
+    expect(withoutCity("Kogon — исключение", "Kogon")).toBe("исключение");
+    expect(withoutCity("Kogonsk tariff: Kogon", "Kogon")).toBe("Kogonsk tariff");
+    expect(withoutCity("G'uzor (исключение)", "G'uzor")).toBe("(исключение)");
   });
 
   it("не склеивает соседние диапазоны с разными суммами", () => {
