@@ -1234,6 +1234,14 @@ export interface ClientTariffRow {
   /** Считается по плану по умолчанию — сумма предварительная. */
   provisional: boolean;
   plan: TariffPlanRef | null;
+  /** Клиент есть только в калькуляторе: свой план назначен, заказов в Shipox Finance нет. */
+  calculatorOnly?: boolean;
+}
+
+/** Клиент калькулятора со своим планом, у которого нет заказов в Shipox Finance. */
+export interface CalculatorOnlyClient {
+  calculatorClient: { id: number; name: string };
+  plan: TariffPlanRef | null;
 }
 
 export interface ClientTariffs {
@@ -1246,6 +1254,10 @@ export interface ClientTariffs {
   /** Отдельная машина (тип 05): наше правило, одно для всех клиентов. */
   separate: { base: number; perKg: number; maxKg: number };
   clients: ClientTariffRow[];
+  /** Нет у старого бэкенда — поэтому необязательное. */
+  calculatorOnly?: CalculatorOnlyClient[];
+  /** С какого дня в Shipox Finance есть заказы, YYYY-MM-DD. */
+  ordersSince?: string | null;
 }
 
 export interface TariffPriceCell {

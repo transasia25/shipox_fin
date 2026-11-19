@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Lock } from "lucide-react";
+import { Lock, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -217,6 +217,54 @@ export function summarizeChanges(
   return summaries;
 }
 
+/** Кого заденет правка: клиенты, которых сейчас считают по этому плану. */
+export interface PlanImpact {
+  /** План по умолчанию: по нему же считаются все новые клиенты без своего плана. */
+  isDefault: boolean;
+  clients: string[];
+}
+
+function clientList(names: string[]): string {
+  const shown = names.slice(0, 8).join(", ");
+  return names.length > 8 ? `${shown} и ещё ${formatNumber(names.length - 8)}` : shown;
+}
+
+/**
+ * Предупреждение о масштабе правки. План по умолчанию правится для всех,
+ * у кого нет своего плана, — это самое заметное, что можно поменять.
+ */
+export function ImpactNote({ impact }: { impact: PlanImpact }) {
+  const count = impact.clients.length;
+  const clients = `${formatNumber(count)} ${plural(count, "клиент", "клиента", "клиентов")}`;
+  if (!impact.isDefault && count <= 1) {
+    return count === 1 ? (
+      <p className="text-xs text-muted-foreground">По этому плану считается только {impact.clients[0]}.</p>
+    ) : null;
+  }
+  return (
+    <div className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <div className="space-y-1">
+        {impact.isDefault ? (
+          <>
+            <div className="font-medium">Это план по умолчанию</div>
+            <div>
+              Сейчас по нему считаются {clients}
+              {count > 0 && `: ${clientList(impact.clients)}`}. Кроме них — каждый новый клиент, пока его
+              не свяжут со своим планом. Новые цены будут у всех.
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="font-medium">По этому плану считаются {clients}</div>
+            <div>{clientList(impact.clients)}. Новые цены будут у всех.</div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Панель сохранения: с какого дня новые цены и почему. Сохраняет только после
  * подтверждения со списком «было → стало».
@@ -229,6 +277,7 @@ export function RevisionBar({
   summaries,
   onCancel,
   onSaved,
+  impact,
 }: {
   versionId: number;
   /** Дата начала правленой версии — у ещё не вступившей правка идёт на месте. */
@@ -238,6 +287,7 @@ export function RevisionBar({
   summaries: ChangeSummary[];
   onCancel: () => void;
   onSaved: (result: TariffRevisionResult) => void;
+  impact: PlanImpact;
 }) {
   const pending = Boolean(versionValidFrom && earliest && versionValidFrom >= earliest);
   const [validFrom, setValidFrom] = useState(pending ? versionValidFrom! : (earliest ?? ""));
@@ -268,7 +318,8 @@ export function RevisionBar({
   };
 
   return (
-    <div className="sticky bottom-0 z-10 -mx-6 border-t border-border bg-card/95 px-6 py-3 backdrop-blur">
+    <div className="sticky bottom-0 z-10 -mx-6 space-y-3 border-t border-border bg-card/95 px-6 py-3 backdrop-blur">
+      <ImpactNote impact={impact} />
       <div className="flex flex-wrap items-end gap-3">
         <div className="text-sm">
           <div className="font-medium">
@@ -314,7 +365,7 @@ export function RevisionBar({
           </Button>
         </div>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {!dateOk
           ? `Новые цены — не раньше ${earliest ? formatDayKey(earliest) : "завтрашнего дня"}: заказы, созданные сегодня, уже посчитаны.`
           : fixInPlace
@@ -326,7 +377,8 @@ export function RevisionBar({
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
-              {fixInPlace ? "Исправить цены" : "Новые цены"} с {validFrom ? formatDayKey(validFrom) : "—"}
+              {fixInPlace ? "Исправить цены" : "Новые цены"}
+              {impact.isDefault ? " плана по умолчанию" : ""} с {validFrom ? formatDayKey(validFrom) : "—"}
             </DialogTitle>
             <DialogDescription>
               {fixInPlace
@@ -334,6 +386,7 @@ export function RevisionBar({
                 : `В калькуляторе появится новая версия плана. Заказы, созданные до ${formatDayKey(validFrom)}, останутся по прежним ценам. Изменение сразу увидят все, кто считает по этому плану, включая калькулятор.`}
             </DialogDescription>
           </DialogHeader>
+          <ImpactNote impact={impact} />
           <div className="max-h-72 overflow-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-muted text-xs text-muted-foreground">

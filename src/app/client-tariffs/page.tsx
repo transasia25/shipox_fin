@@ -43,7 +43,13 @@ import {
   surchargeWeightLabel,
   type SurchargeKind,
 } from "./surcharge-lines";
-import { RevisionBar, RevisionHistory, EditablePriceCell, summarizeChanges } from "./price-editor";
+import {
+  EditablePriceCell,
+  RevisionBar,
+  RevisionHistory,
+  summarizeChanges,
+  type PlanImpact,
+} from "./price-editor";
 import {
   collectOrigins,
   isChanged,
@@ -129,6 +135,27 @@ export default function ClientTariffsPage() {
   }, [selected]);
 
   const data = tariffs.data;
+  // Клиенты Shipox и в конце — клиенты калькулятора без заказов: иначе их план не найти.
+  const rows = useMemo<ClientTariffRow[]>(
+    () =>
+      data
+        ? [
+            ...data.clients,
+            ...(data.calculatorOnly ?? []).map((item) => ({
+              shipoxCustomerId: `calculator:${item.calculatorClient.id}`,
+              shipoxCustomerName: item.calculatorClient.name,
+              orders: 0,
+              calculatorClient: item.calculatorClient,
+              matchedBy: null,
+              confirmed: false,
+              provisional: false,
+              plan: item.plan,
+              calculatorOnly: true,
+            })),
+          ]
+        : [],
+    [data],
+  );
 
   return (
     <div className="space-y-5">
@@ -189,8 +216,9 @@ export default function ClientTariffsPage() {
           </div>
 
           <ClientsTable
-            rows={data.clients}
+            rows={rows}
             date={data.date}
+            ordersSince={data.ordersSince ?? null}
             selectedId={selected?.shipoxCustomerId ?? null}
             onSelect={setSelected}
           />
@@ -202,6 +230,7 @@ export default function ClientTariffsPage() {
                 client={selected}
                 plan={selected.plan}
                 zones={zones.data ?? null}
+                planClients={rows.filter((row) => row.plan?.planId === selected.plan?.planId)}
               />
             ) : selected ? (
               <Card className="p-4 text-sm text-muted-foreground">
@@ -225,11 +254,14 @@ export default function ClientTariffsPage() {
 function ClientsTable({
   rows,
   date,
+  ordersSince,
   selectedId,
   onSelect,
 }: {
   rows: ClientTariffRow[];
   date: string;
+  /** С какого дня в базе есть заказы — чтобы «нет заказов» говорило, за какой срок. */
+  ordersSince: string | null;
   selectedId: string | null;
   onSelect: (row: ClientTariffRow) => void;
 }) {
@@ -260,9 +292,11 @@ function ClientsTable({
               {row.original.shipoxCustomerName}
             </div>
             <div className="text-xs text-muted-foreground">
-              {row.original.calculatorClient
-                ? `в калькуляторе: ${row.original.calculatorClient.name}`
-                : "в калькуляторе не найден"}
+              {row.original.calculatorOnly
+                ? "есть только в калькуляторе"
+                : row.original.calculatorClient
+                  ? `в калькуляторе: ${row.original.calculatorClient.name}`
+                  : "в калькуляторе не найден"}
             </div>
           </div>
         ),
@@ -272,14 +306,44 @@ function ClientsTable({
         header: "Заказов",
         accessorFn: (row) => row.orders,
         meta: { align: "center" },
-        cell: ({ row }) => <span className="tabular-nums">{formatNumber(row.original.orders)}</span>,
+        cell: ({ row }) =>
+          row.original.calculatorOnly ? (
+            <span className="text-muted-foreground" title="В Shipox Finance нет ни одного заказа этого клиента">
+              —
+            </span>
+          ) : (
+            <span className="tabular-nums">{formatNumber(row.original.orders)}</span>
+          ),
       },
       {
         id: "match",
         header: "Сопоставлен",
         accessorFn: (row) => row.matchedBy ?? "",
         cell: ({ row }) => {
-          const { matchedBy, confirmed } = row.original;
+          const { matchedBy, confirmed, calculatorOnly } = row.original;
+          if (calculatorOnly) {
+            return (
+              <Hint
+                className="no-underline"
+                label={
+                  <Badge variant="secondary">
+                    {ordersSince ? `нет заказов с ${formatDay(ordersSince)}` : "нет заказов"}
+                  </Badge>
+                }
+              >
+                <p>
+                  У клиента в калькуляторе назначен свой план, но в Shipox Finance нет ни одного его
+                  заказа
+                  {ordersSince
+                    ? ` — а заказы здесь есть только с ${formatDay(ordersSince)}. Раньше этой даты он мог возить, просто это сюда не попало.`
+                    : "."}
+                </p>
+                <p className="text-muted-foreground">
+                  Если клиент возит под другим названием, свяжите его в «Клиенты и расчёты».
+                </p>
+              </Hint>
+            );
+          }
           if (!matchedBy) return <span className="text-xs text-muted-foreground">ещё нет</span>;
           return (
             <Badge variant={matchedBy === "DEFAULT" ? "destructive" : "outline"}>
@@ -308,17 +372,18 @@ function ClientsTable({
         },
       },
     ],
-    [selectedId],
+    [selectedId, ordersSince],
   );
 
   return (
     <Card className="gap-3 p-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-base font-medium">Клиенты Shipox</div>
+          <div className="text-base font-medium">Клиенты</div>
           <p className="text-sm text-muted-foreground">
             План на {formatDay(date)} определяет сам калькулятор: та же функция, что при расчёте.
-            Нажмите на строку, чтобы открыть цены.
+            Нажмите на строку, чтобы открыть цены. В конце списка — клиенты, у которых в калькуляторе
+            свой план, но нет заказов в Shipox Finance.
           </p>
         </div>
         <Input
@@ -356,10 +421,13 @@ function VersionDetail({
   client,
   plan,
   zones,
+  planClients,
 }: {
   client: ClientTariffRow;
   plan: TariffPlanRef;
   zones: TariffZoneMatrix | null;
+  /** Все клиенты, которых считают по этому плану, — кого заденет правка цен. */
+  planClients: ClientTariffRow[];
 }) {
   const session = useSession();
   const canRevise = canReviseTariffs(session);
@@ -520,6 +588,7 @@ function VersionDetail({
             onCancelEdit={stopEditing}
             onSaved={onSaved}
             revisions={history.data ?? []}
+            impact={{ isDefault: plan.isDefault, clients: planClients.map((row) => row.shipoxCustomerName) }}
           />
         )}
       </CardContent>
@@ -535,6 +604,7 @@ function VersionBody({
   onCancelEdit,
   onSaved,
   revisions,
+  impact,
 }: {
   detail: TariffVersionDetail;
   zones: TariffZoneMatrix | null;
@@ -543,6 +613,7 @@ function VersionBody({
   onCancelEdit: () => void;
   onSaved: (result: TariffRevisionResult) => void;
   revisions: TariffRevision[];
+  impact: PlanImpact;
 }) {
   const serviceTypes = detail.serviceTypes;
   const serviceName = useCallback(
@@ -631,6 +702,7 @@ function VersionBody({
               summaries={summaries}
               onCancel={onCancelEdit}
               onSaved={onSaved}
+              impact={impact}
             />
           )}
         </section>
