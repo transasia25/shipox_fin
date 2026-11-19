@@ -17,7 +17,6 @@ import { PageHeader } from "@/components/ui-kit/page-header";
 import { useBackend } from "@/hooks/use-backend";
 import {
   getTariffRevisionRules,
-  getTariffVersion,
   getTariffZones,
   listClientTariffs,
   listTariffRevisions,
@@ -54,6 +53,7 @@ import {
   type RuleDraft,
   type RuleOrigin,
 } from "./price-editing";
+import { forgetVersions, loadVersion, prefetchVersion } from "./version-cache";
 import { destinationsByZone, referenceHub, zoneHints, zoneIssues, zoneLookup, type ZoneHint } from "./zones";
 
 const MATCH_LABEL: Record<TariffMatchSource, string> = {
@@ -139,7 +139,10 @@ export default function ClientTariffsPage() {
           <>
             <Button
               variant="outline"
-              onClick={() => setRefreshToken((value) => value + 1)}
+              onClick={() => {
+                forgetVersions();
+                setRefreshToken((value) => value + 1);
+              }}
               disabled={tariffs.loading}
             >
               <RefreshCw className={tariffs.loading ? "size-4 animate-spin" : "size-4"} />
@@ -330,6 +333,8 @@ function ClientsTable({
         columns={columns}
         initialSorting={[{ id: "orders", desc: true }]}
         onRowClick={onSelect}
+        // Цены плана начинают грузиться, пока курсор на строке, — к клику они обычно готовы.
+        onRowHover={(row) => row.plan && prefetchVersion(row.plan.versionId)}
         pageSize={20}
         emptyMessage="Клиент не найден"
       />
@@ -379,7 +384,7 @@ function VersionDetail({
 
   const [shownVersionId, setShownVersionId] = useState(plan.versionId);
   const [versionToken, setVersionToken] = useState(0);
-  const version = useBackend(() => getTariffVersion(shownVersionId), [shownVersionId, versionToken]);
+  const version = useBackend(() => loadVersion(shownVersionId), [shownVersionId, versionToken]);
   const detail = version.data;
   const showingPending = shownVersionId !== plan.versionId;
   const shown: Pick<TariffPlanRef, "validFrom" | "validTo" | "versionName"> = detail ?? plan;
@@ -408,6 +413,8 @@ function VersionDetail({
     : null;
 
   const onSaved = (result: TariffRevisionResult) => {
+    // Цены поменялись — всё, что запомнили в этой вкладке, загрузится заново.
+    forgetVersions();
     stopEditing();
     setHistoryToken((value) => value + 1);
     if (result.newVersionId === shownVersionId) setVersionToken((value) => value + 1);

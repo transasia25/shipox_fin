@@ -29,6 +29,8 @@ interface DataTableProps<T> {
   /** Начальная сортировка. */
   initialSorting?: SortingState;
   onRowClick?: (row: T) => void;
+  /** Курсор навели на строку — например, чтобы заранее загрузить то, что откроется по клику. */
+  onRowHover?: (row: T) => void;
   emptyMessage?: string;
   /** Строка итогов под таблицей — для сумм по колонкам. */
   footer?: ReactNode;
@@ -45,6 +47,7 @@ export function DataTable<T>({
   columns,
   initialSorting = [],
   onRowClick,
+  onRowHover,
   emptyMessage = "Нет данных за выбранный период",
   footer,
   pageSize = 25,
@@ -128,6 +131,7 @@ export function DataTable<T>({
                 <TableRow
                   key={row.id}
                   onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onPointerEnter={onRowHover ? () => onRowHover(row.original) : undefined}
                   className={cn(onRowClick && "cursor-pointer")}
                 >
                   {row.getVisibleCells().map((cell) => {
