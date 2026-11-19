@@ -1124,7 +1124,9 @@ export type UserRole =
   | "ACCOUNTANT"
   | "VIEWER"
   /** Сотрудник ПВЗ: начисления курьерам своего региона за текущий месяц. */
-  | "BRANCH";
+  | "BRANCH"
+  /** Финансист: видит то же, что бухгалтер, и меняет цены в тарифах клиентов. */
+  | "FINANCIER";
 
 /** Кто вошёл. Имя подписывает приёмки, сканы и рейсы. */
 export interface Session {
@@ -1313,4 +1315,42 @@ export interface TariffVersionDetail extends TariffPlanRef {
 export interface TariffZoneMatrix {
   hubs: Array<{ id: number; name: string }>;
   cells: Array<{ fromHubId: number; toHubId: number; zone: number }>;
+}
+
+/** Цены правила до и после правки. */
+export interface TariffRevisionPrices {
+  basePrice: number | null;
+  extraPerKg: number | null;
+  pricePerUnit: number | null;
+}
+
+export interface TariffRevisionChange {
+  ruleId: number;
+  serviceTypeId: number | null;
+  zone: number | null;
+  weightFrom: number;
+  before: TariffRevisionPrices;
+  after: TariffRevisionPrices;
+}
+
+/** Правка цен из Shipox Finance: новая версия плана с даты. */
+export interface TariffRevision {
+  id: string;
+  planId: number;
+  planName: string;
+  previousVersionId: number;
+  newVersionId: number;
+  /** Первый день новых цен, ISO. */
+  validFrom: string;
+  changes: TariffRevisionChange[];
+  note: string | null;
+  changedBy: string;
+  changedAt: string;
+}
+
+export interface TariffRevisionResult {
+  planId: number;
+  newVersionId: number;
+  validFrom: string;
+  changes: TariffRevisionChange[];
 }

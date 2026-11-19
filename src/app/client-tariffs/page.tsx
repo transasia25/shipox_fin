@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { RefreshCw, TriangleAlert } from "lucide-react";
+import { Pencil, RefreshCw, TriangleAlert } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,19 +15,28 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ErrorState } from "@/components/ui-kit/error-state";
 import { PageHeader } from "@/components/ui-kit/page-header";
 import { useBackend } from "@/hooks/use-backend";
-import { getTariffVersion, getTariffZones, listClientTariffs } from "@/lib/backend/client";
+import {
+  getTariffRevisionRules,
+  getTariffVersion,
+  getTariffZones,
+  listClientTariffs,
+  listTariffRevisions,
+} from "@/lib/backend/client";
 import type {
   ClientTariffRow,
   TariffMatchSource,
   TariffPlanRef,
   TariffPriceCell,
+  TariffRevision,
+  TariffRevisionResult,
   TariffRouteRule,
   TariffSurcharge,
   TariffVersionDetail,
   TariffZoneGrid,
   TariffZoneMatrix,
 } from "@/lib/backend/types";
-import { formatDate, formatNumber, formatPrice, plural } from "@/lib/format";
+import { formatDate, formatDateTime, formatNumber, formatPrice, plural } from "@/lib/format";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import {
   amountLabels,
@@ -35,6 +44,16 @@ import {
   surchargeWeightLabel,
   type SurchargeKind,
 } from "./surcharge-lines";
+import { RevisionBar, RevisionHistory, EditablePriceCell, summarizeChanges } from "./price-editor";
+import {
+  collectOrigins,
+  isChanged,
+  layoutGrid,
+  toChanges,
+  type EditableCell,
+  type RuleDraft,
+  type RuleOrigin,
+} from "./price-editing";
 import { destinationsByZone, referenceHub, zoneHints, zoneIssues, zoneLookup, type ZoneHint } from "./zones";
 
 const MATCH_LABEL: Record<TariffMatchSource, string> = {
@@ -318,6 +337,16 @@ function ClientsTable({
   );
 }
 
+/** Финансист и администратор меняют цены; остальные только смотрят. */
+function canReviseTariffs(session: ReturnType<typeof useSession>): boolean {
+  return session.status === "signed-in" && (session.user.role === "ADMIN" || session.user.role === "FINANCIER");
+}
+
+interface PriceEditor {
+  drafts: Map<number, RuleDraft>;
+  onDraft: (origin: RuleOrigin, draft: RuleDraft) => void;
+}
+
 function VersionDetail({
   client,
   plan,
@@ -327,31 +356,98 @@ function VersionDetail({
   plan: TariffPlanRef;
   zones: TariffZoneMatrix | null;
 }) {
-  const version = useBackend(() => getTariffVersion(plan.versionId), [plan.versionId]);
+  const session = useSession();
+  const canRevise = canReviseTariffs(session);
+  const rules = useBackend(() => getTariffRevisionRules(), []);
+  const earliest = rules.data?.earliestValidFrom ?? null;
+
+  const [historyToken, setHistoryToken] = useState(0);
+  const history = useBackend(
+    () => (plan.planId === null ? Promise.resolve([]) : listTariffRevisions(plan.planId)),
+    [plan.planId, historyToken],
+  );
+
+  // Ещё не вступившие цены, заведённые из Shipox Finance: страница по
+  // умолчанию показывает действующие, а эти — по кнопке.
+  const pending = useMemo(() => {
+    if (!earliest || !history.data) return null;
+    const upcoming = history.data
+      .filter((revision) => revision.validFrom.slice(0, 10) >= earliest && revision.newVersionId !== plan.versionId)
+      .sort((a, b) => b.validFrom.localeCompare(a.validFrom) || b.changedAt.localeCompare(a.changedAt));
+    return upcoming[0] ?? null;
+  }, [earliest, history.data, plan.versionId]);
+
+  const [shownVersionId, setShownVersionId] = useState(plan.versionId);
+  const [versionToken, setVersionToken] = useState(0);
+  const version = useBackend(() => getTariffVersion(shownVersionId), [shownVersionId, versionToken]);
   const detail = version.data;
+  const showingPending = shownVersionId !== plan.versionId;
+  const shown: Pick<TariffPlanRef, "validFrom" | "validTo" | "versionName"> = detail ?? plan;
+
+  const [editing, setEditing] = useState(false);
+  const [drafts, setDrafts] = useState<Map<number, RuleDraft>>(new Map());
+  const stopEditing = () => {
+    setEditing(false);
+    setDrafts(new Map());
+  };
+  const showVersion = (versionId: number) => {
+    stopEditing();
+    setShownVersionId(versionId);
+  };
+  const editor: PriceEditor | null = editing
+    ? {
+        drafts,
+        onDraft: (origin, draft) =>
+          setDrafts((previous) => {
+            const next = new Map(previous);
+            if (isChanged(origin, draft)) next.set(origin.ruleId, draft);
+            else next.delete(origin.ruleId);
+            return next;
+          }),
+      }
+    : null;
+
+  const onSaved = (result: TariffRevisionResult) => {
+    stopEditing();
+    setHistoryToken((value) => value + 1);
+    if (result.newVersionId === shownVersionId) setVersionToken((value) => value + 1);
+    else setShownVersionId(result.newVersionId);
+  };
 
   return (
     <Card>
       <CardHeader className="space-y-1.5">
-        <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          {client.shipoxCustomerName}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              {client.shipoxCustomerName}
+            </div>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+              {plan.planName}
+              {plan.isDefault && <Badge variant="secondary">план по умолчанию</Badge>}
+              {client.provisional && <Badge variant="outline">предварительно</Badge>}
+              {showingPending && <Badge>ещё не действуют</Badge>}
+            </CardTitle>
+          </div>
+          {canRevise && detail && detail.zoneGrids.length > 0 && !editing && (
+            <Button variant="outline" onClick={() => setEditing(true)}>
+              <Pencil className="size-4" />
+              Изменить цены
+            </Button>
+          )}
         </div>
-        <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-          {plan.planName}
-          {plan.isDefault && <Badge variant="secondary">план по умолчанию</Badge>}
-          {client.provisional && <Badge variant="outline">предварительно</Badge>}
-        </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Действует {validity(plan)}
-          {plan.versionName && (
+          {showingPending ? "Начнут действовать " : "Действуют "}
+          {validity(shown)}
+          {shown.versionName && (
             <>
               {" · "}
-              <Hint label={<>версия «{plan.versionName}»</>}>
+              <Hint label={<>версия «{shown.versionName}»</>}>
                 <p>
                   Название версии плана в калькуляторе. Когда цены меняются, заводят новую версию с
                   новой датой начала, а старая остаётся для расчётов за прошлые периоды.
                 </p>
-                {plan.versionName === "2026-Initial" && (
+                {shown.versionName === "2026-Initial" && (
                   <p className="text-muted-foreground">
                     «2026-Initial» — версии, перенесённые из старой схемы калькулятора в начале 2026
                     года.
@@ -380,6 +476,28 @@ function VersionDetail({
             {detail.assignedClients.length > 8 && ` и ещё ${detail.assignedClients.length - 8}`}
           </p>
         )}
+        {pending && !showingPending && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <span>
+              С {formatDate(pending.validFrom)} по этому плану действуют новые цены
+              <span className="text-muted-foreground">
+                {" "}
+                — {pending.changedBy}, {formatDateTime(pending.changedAt)}
+              </span>
+            </span>
+            <Button size="sm" variant="outline" onClick={() => showVersion(pending.newVersionId)}>
+              Показать цены с {formatDate(pending.validFrom)}
+            </Button>
+          </div>
+        )}
+        {showingPending && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <span>Это цены, которые ещё не действуют. Сейчас заказы считаются по прежним.</span>
+            <Button size="sm" variant="outline" onClick={() => showVersion(plan.versionId)}>
+              Показать действующие цены
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-6">
         {version.error ? (
@@ -387,7 +505,15 @@ function VersionDetail({
         ) : !detail ? (
           <Skeleton className="h-64" />
         ) : (
-          <VersionBody detail={detail} zones={zones} />
+          <VersionBody
+            detail={detail}
+            zones={zones}
+            editor={editor}
+            earliest={earliest}
+            onCancelEdit={stopEditing}
+            onSaved={onSaved}
+            revisions={history.data ?? []}
+          />
         )}
       </CardContent>
     </Card>
@@ -397,9 +523,19 @@ function VersionDetail({
 function VersionBody({
   detail,
   zones,
+  editor,
+  earliest,
+  onCancelEdit,
+  onSaved,
+  revisions,
 }: {
   detail: TariffVersionDetail;
   zones: TariffZoneMatrix | null;
+  editor: PriceEditor | null;
+  earliest: string | null;
+  onCancelEdit: () => void;
+  onSaved: (result: TariffRevisionResult) => void;
+  revisions: TariffRevision[];
 }) {
   const serviceTypes = detail.serviceTypes;
   const serviceName = useCallback(
@@ -412,6 +548,15 @@ function VersionBody({
   );
   const empty =
     detail.zoneGrids.length === 0 && detail.routeRules.length === 0 && detail.surcharges.length === 0;
+
+  const layouts = useMemo(() => detail.zoneGrids.map((grid) => layoutGrid(grid)), [detail.zoneGrids]);
+  const origins = useMemo(() => collectOrigins(layouts), [layouts]);
+  const drafts = editor?.drafts;
+  const changes = useMemo(() => (drafts ? toChanges(origins, drafts) : []), [origins, drafts]);
+  const summaries = useMemo(
+    () => (drafts ? summarizeChanges(detail.zoneGrids, layouts, drafts, serviceName) : []),
+    [detail.zoneGrids, layouts, drafts, serviceName],
+  );
 
   return (
     <>
@@ -447,14 +592,13 @@ function VersionBody({
           <div>
             <h3 className="text-sm font-semibold">Цены по зонам</h3>
             <p className="text-xs text-muted-foreground">
-              Цена — для веса, с которого начинается строка; «+N/кг» — доплата за каждый следующий
-              килограмм. Вес округляется вверх. Наведите на зону или нажмите на неё, чтобы увидеть, какие это
-              направления; все зоны — в блоке «Зоны доставки» внизу страницы. Надбавки ниже
-              прибавляются сверху.
+              {editor
+                ? "Меняйте цену и доплату за кг в ячейках. Серые цены «по строке выше» считаются от правила строкой выше — меняются вместе с ним. Ячейки с замком правятся в калькуляторе."
+                : "Цена — для веса, с которого начинается строка; «+N/кг» — доплата за каждый следующий килограмм. Вес округляется вверх. Наведите на зону или нажмите на неё, чтобы увидеть, какие это направления; все зоны — в блоке «Зоны доставки» внизу страницы. Надбавки ниже прибавляются сверху."}
             </p>
           </div>
           {detail.zoneGrids.length === 1 ? (
-            <ZoneGridTable grid={detail.zoneGrids[0]} zones={zones} />
+            <ZoneGridTable grid={detail.zoneGrids[0]} zones={zones} layout={layouts[0]} editor={editor} />
           ) : (
             <Tabs defaultValue={String(detail.zoneGrids[0].serviceTypeId)}>
               <TabsList>
@@ -464,12 +608,23 @@ function VersionBody({
                   </TabsTrigger>
                 ))}
               </TabsList>
-              {detail.zoneGrids.map((grid) => (
+              {detail.zoneGrids.map((grid, index) => (
                 <TabsContent key={String(grid.serviceTypeId)} value={String(grid.serviceTypeId)}>
-                  <ZoneGridTable grid={grid} zones={zones} />
+                  <ZoneGridTable grid={grid} zones={zones} layout={layouts[index]} editor={editor} />
                 </TabsContent>
               ))}
             </Tabs>
+          )}
+          {editor && (
+            <RevisionBar
+              versionId={detail.versionId}
+              versionValidFrom={detail.validFrom}
+              earliest={earliest}
+              changes={changes}
+              summaries={summaries}
+              onCancel={onCancelEdit}
+              onSaved={onSaved}
+            />
           )}
         </section>
       )}
@@ -481,6 +636,8 @@ function VersionBody({
       {detail.surcharges.length > 0 && (
         <SurchargesTable surcharges={detail.surcharges} serviceName={serviceName} />
       )}
+
+      <RevisionHistory revisions={revisions} serviceName={serviceName} />
     </>
   );
 }
@@ -520,7 +677,17 @@ function ZoneHeader({ zone, hint }: { zone: number; hint: ZoneHint | undefined }
   );
 }
 
-function ZoneGridTable({ grid, zones }: { grid: TariffZoneGrid; zones: TariffZoneMatrix | null }) {
+function ZoneGridTable({
+  grid,
+  zones,
+  layout,
+  editor,
+}: {
+  grid: TariffZoneGrid;
+  zones: TariffZoneMatrix | null;
+  layout: Map<string, EditableCell>;
+  editor: PriceEditor | null;
+}) {
   const hints = useMemo(() => zoneHints(zones, grid.zones), [zones, grid.zones]);
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
@@ -536,18 +703,35 @@ function ZoneGridTable({ grid, zones }: { grid: TariffZoneGrid; zones: TariffZon
           </tr>
         </thead>
         <tbody>
-          {grid.rows.map((row) => (
-            <tr key={row.weightFrom} className="border-t border-border align-top">
-              <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
-                {surchargeWeightLabel(row.weightFrom, row.weightTo)}
-              </td>
-              {row.cells.map((cell, index) => (
-                <td key={grid.zones[index]} className="px-3 py-2 text-right">
-                  {cell ? <PriceValue cell={cell} /> : <span className="text-muted-foreground/50">—</span>}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {grid.rows.map((row, rowIndex) => {
+            const weight = surchargeWeightLabel(row.weightFrom, row.weightTo);
+            return (
+              <tr key={row.weightFrom} className="border-t border-border align-top">
+                <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">{weight}</td>
+                {row.cells.map((cell, index) => {
+                  const editable = editor && cell ? layout.get(`${rowIndex}:${index}`) : undefined;
+                  return (
+                    <td key={grid.zones[index]} className={cn("text-right", editable ? "px-1.5 py-1" : "px-3 py-2")}>
+                      {!cell ? (
+                        <span className="text-muted-foreground/50">—</span>
+                      ) : editable && editor ? (
+                        <EditablePriceCell
+                          cell={editable}
+                          drafts={editor.drafts}
+                          onDraft={editor.onDraft}
+                          fallback={<PriceValue cell={cell} />}
+                          zone={grid.zones[index]}
+                          weightLabel={weight}
+                        />
+                      ) : (
+                        <PriceValue cell={cell} />
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

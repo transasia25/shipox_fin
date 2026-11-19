@@ -38,7 +38,7 @@ export interface NavItem {
   roles?: UserRole[];
 }
 
-const OFFICE: UserRole[] = ["ADMIN", "ACCOUNTANT", "VIEWER"];
+const OFFICE: UserRole[] = ["ADMIN", "ACCOUNTANT", "FINANCIER", "VIEWER"];
 /** Начисления курьерам: офис плюс сотрудник ПВЗ по своему региону. */
 const PAYOUTS: UserRole[] = [...OFFICE, "BRANCH"];
 const TRANSIT: UserRole[] = ["ADMIN", "DISPATCHER", "VIEWER"];
@@ -50,14 +50,14 @@ export const NAV: NavItem[] = [
     href: "/dashboard",
     label: "Дашборд",
     icon: LayoutDashboard,
-    roles: ["ADMIN", "ACCOUNTANT", "DISPATCHER", "VIEWER"],
+    roles: ["ADMIN", "ACCOUNTANT", "FINANCIER", "DISPATCHER", "VIEWER"],
   },
   // Сотруднику ПВЗ заказы не показываем: в карточке видны цены клиентов.
   {
     href: "/orders",
     label: "Заказы",
     icon: Package,
-    roles: ["ADMIN", "ACCOUNTANT", "DISPATCHER", "STOREKEEPER", "VIEWER"],
+    roles: ["ADMIN", "ACCOUNTANT", "FINANCIER", "DISPATCHER", "STOREKEEPER", "VIEWER"],
   },
   { href: "/warehouse/receive", label: "Приёмка на складе", icon: ScanBarcode, roles: WAREHOUSE },
   { href: "/warehouse/transit", label: "Отправка в транзит", icon: PackageCheck, roles: WAREHOUSE },
@@ -67,13 +67,13 @@ export const NAV: NavItem[] = [
     href: "/warehouse/sorting",
     label: "Склад: что лежит",
     icon: PackageSearch,
-    roles: ["ADMIN", "DISPATCHER", "STOREKEEPER", "ACCOUNTANT", "VIEWER"],
+    roles: ["ADMIN", "DISPATCHER", "STOREKEEPER", "ACCOUNTANT", "FINANCIER", "VIEWER"],
   },
   {
     href: "/couriers",
     label: "Курьеры",
     icon: Truck,
-    roles: ["ADMIN", "ACCOUNTANT", "DISPATCHER", "STOREKEEPER", "VIEWER"],
+    roles: ["ADMIN", "ACCOUNTANT", "FINANCIER", "DISPATCHER", "STOREKEEPER", "VIEWER"],
   },
   { href: "/courier-payouts", label: "Начисления курьерам", icon: Wallet, roles: PAYOUTS },
   { href: "/courier-tariffs", label: "Тарифы курьеров", icon: Coins, roles: OFFICE },

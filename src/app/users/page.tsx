@@ -35,6 +35,7 @@ const ROLE_HINT: Record<UserRole, string> = {
   ACCOUNTANT: "Курьеры, тарифы, начисления, выгрузки",
   VIEWER: "Только просмотр",
   BRANCH: "Начисления своим курьерам за текущий месяц",
+  FINANCIER: "То же, что бухгалтер, и правка цен в тарифах клиентов",
 };
 
 const ROLE_OPTIONS = (Object.keys(ROLE_LABEL) as UserRole[]).map((role) => ({
