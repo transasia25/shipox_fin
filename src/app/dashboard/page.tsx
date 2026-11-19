@@ -32,7 +32,7 @@ import { useSession } from "@/lib/session";
 import { useFinanceStore } from "@/lib/store";
 
 /** Кому показываем деньги: диспетчеру и кладовщику прибыль не нужна. */
-const MONEY_ROLES = ["ADMIN", "ACCOUNTANT", "VIEWER"];
+const MONEY_ROLES = ["ADMIN", "ACCOUNTANT", "FINANCIER", "VIEWER"];
 
 export default function DashboardPage() {
   const period = useFinanceStore((s) => s.period);

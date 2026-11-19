@@ -1,6 +1,8 @@
 import type {
   AssignedOrder,
   ClientTariffs,
+  TariffRevision,
+  TariffRevisionResult,
   TariffVersionDetail,
   TariffZoneMatrix,
   Carrier,
@@ -308,6 +310,34 @@ export function getTariffVersion(versionId: number): Promise<TariffVersionDetail
 /** Матрица зон «хаб → хаб». */
 export function getTariffZones(): Promise<TariffZoneMatrix> {
   return request("/client-tariffs/zones");
+}
+
+/**
+ * Новые цены по зонам с даты. Сервер заводит в калькуляторе новую версию
+ * плана; заказы, созданные раньше этой даты, остаются по прежним ценам.
+ */
+export function reviseTariffPrices(
+  versionId: number,
+  body: {
+    validFrom: string;
+    note?: string;
+    changes: Array<{ ruleId: number; basePrice?: number; extraPerKg?: number; pricePerUnit?: number }>;
+  },
+): Promise<TariffRevisionResult> {
+  return request(`/client-tariffs/versions/${versionId}/revisions`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Кто, когда и что менял в ценах плана. */
+export function listTariffRevisions(planId: number): Promise<TariffRevision[]> {
+  return request(`/client-tariffs/plans/${planId}/revisions`);
+}
+
+/** С какого дня можно ввести новые цены (завтра по времени сервера). */
+export function getTariffRevisionRules(): Promise<{ earliestValidFrom: string }> {
+  return request("/client-tariffs/revision-rules");
 }
 
 // ──────────────────────── Приёмка на складе ────────────────────────
