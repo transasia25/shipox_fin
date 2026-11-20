@@ -1234,14 +1234,52 @@ export interface ClientTariffRow {
   /** Считается по плану по умолчанию — сумма предварительная. */
   provisional: boolean;
   plan: TariffPlanRef | null;
+  /** План, назначенный с более поздней даты. Нет у старого бэкенда. */
+  upcoming?: UpcomingTariffPlan | null;
   /** Клиент есть только в калькуляторе: свой план назначен, заказов в Shipox Finance нет. */
   calculatorOnly?: boolean;
+}
+
+/** План клиента, который начнёт действовать позже, — например, заведённый сегодня с завтра. */
+export interface UpcomingTariffPlan {
+  /** YYYY-MM-DD */
+  validFrom: string;
+  plan: TariffPlanRef;
 }
 
 /** Клиент калькулятора со своим планом, у которого нет заказов в Shipox Finance. */
 export interface CalculatorOnlyClient {
   calculatorClient: { id: number; name: string };
   plan: TariffPlanRef | null;
+  upcoming?: UpcomingTariffPlan | null;
+}
+
+/** Новый тариф клиента: копия плана или одна ставка за кг на все зоны. */
+export interface NewClientTariffInput {
+  shipoxCustomerId?: string;
+  calculatorClientId?: number;
+  inn?: string;
+  planName: string;
+  validFrom: string;
+  baseVersionId: number;
+  mode: "COPY" | "PER_KG";
+  rates?: Array<{ serviceTypeId: number; perKg: number }>;
+  copySurcharges?: boolean;
+  /** Услуги без ставки — по ценам базового плана. */
+  otherServicesFromBase?: boolean;
+  note: string;
+}
+
+export interface NewClientTariffResult {
+  calculatorClient: { id: number; name: string; created: boolean };
+  planId: number;
+  planName: string;
+  versionId: number;
+  validFrom: string;
+  priceRules: number;
+  surcharges: number;
+  /** Прежний свой план клиента и его последний день. */
+  previous: { planId: number; planName: string | null; validTo: string } | null;
 }
 
 export interface ClientTariffs {

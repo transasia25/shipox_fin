@@ -455,12 +455,14 @@ export function RevisionHistory({
       <div>
         <h3 className="text-sm font-semibold">История изменений цен</h3>
         <p className="text-xs text-muted-foreground">
-          Правки из Shipox Finance. Цены, изменённые прямо в калькуляторе, здесь не видны.
+          Правки и новые тарифы из Shipox Finance. Цены, изменённые прямо в калькуляторе, здесь не видны.
         </p>
       </div>
       <ul className="divide-y divide-border rounded-lg border border-border">
         {sorted.map((revision) => {
           const inPlace = revision.previousVersionId === revision.newVersionId;
+          // Новый тариф клиента: в журнале без списка цен — их источник в пояснении.
+          const created = revision.changes.length === 0;
           const from = formatDate(revision.validFrom);
           return (
             <li key={revision.id} className="px-3 py-2 text-sm">
@@ -468,12 +470,14 @@ export function RevisionHistory({
                 <summary className="cursor-pointer list-none">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <span>
-                      {inPlace ? `Исправлены цены с ${from}` : `Новые цены с ${from}`}
-                      <span className="text-muted-foreground">
-                        {" · "}
-                        {formatNumber(revision.changes.length)}{" "}
-                        {plural(revision.changes.length, "цена", "цены", "цен")}
-                      </span>
+                      {created ? `Тариф заведён с ${from}` : inPlace ? `Исправлены цены с ${from}` : `Новые цены с ${from}`}
+                      {!created && (
+                        <span className="text-muted-foreground">
+                          {" · "}
+                          {formatNumber(revision.changes.length)}{" "}
+                          {plural(revision.changes.length, "цена", "цены", "цен")}
+                        </span>
+                      )}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {revision.changedBy}, {formatDateTime(revision.changedAt)}

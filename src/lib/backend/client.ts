@@ -1,6 +1,8 @@
 import type {
   AssignedOrder,
   ClientTariffs,
+  NewClientTariffInput,
+  NewClientTariffResult,
   TariffRevision,
   TariffRevisionResult,
   TariffVersionDetail,
@@ -293,7 +295,7 @@ export function runPricing(
   return request("/pricing/run", { method: "POST", body: JSON.stringify(body) });
 }
 
-// ─────────── Тарифы клиентов (калькулятор в Supabase, только чтение) ───────────
+// ─────────── Тарифы клиентов (калькулятор в Supabase) ───────────
 
 /** По какому плану калькулятора считается каждый клиент Shipox. */
 export function listClientTariffs(
@@ -333,6 +335,14 @@ export function reviseTariffPrices(
 /** Кто, когда и что менял в ценах плана. */
 export function listTariffRevisions(planId: number): Promise<TariffRevision[]> {
   return request(`/client-tariffs/plans/${planId}/revisions`);
+}
+
+/**
+ * Новый тариф клиента с даты: свой план в калькуляторе (копия плана или одна
+ * ставка за кг). Клиент калькулятора заводится, если его нет.
+ */
+export function createClientTariff(body: NewClientTariffInput): Promise<NewClientTariffResult> {
+  return request("/client-tariffs/plans", { method: "POST", body: JSON.stringify(body) });
 }
 
 /** С какого дня можно ввести новые цены (завтра по времени сервера). */

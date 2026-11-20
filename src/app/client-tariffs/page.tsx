@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Pencil, RefreshCw, TriangleAlert } from "lucide-react";
+import { Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ import type {
   TariffVersionDetail,
   TariffZoneGrid,
   TariffZoneMatrix,
+  UpcomingTariffPlan,
 } from "@/lib/backend/types";
 import { formatDate, formatDateTime, formatNumber, formatPrice, plural } from "@/lib/format";
 import { useSession } from "@/lib/session";
@@ -59,6 +60,7 @@ import {
   type RuleDraft,
   type RuleOrigin,
 } from "./price-editing";
+import { NewTariffDialog } from "./new-tariff-dialog";
 import { forgetVersions, loadVersion, prefetchVersion } from "./version-cache";
 import { destinationsByZone, referenceHub, zoneHints, zoneIssues, zoneLookup, type ZoneHint } from "./zones";
 
@@ -127,12 +129,20 @@ export default function ClientTariffsPage() {
   );
   // Зоны общие для всех планов: нужны и подсказкам в таблице цен, и блоку зон внизу.
   const zones = useBackend(() => getTariffZones(), []);
-  const [selected, setSelected] = useState<ClientTariffRow | null>(null);
+  const session = useSession();
+  const canRevise = canReviseTariffs(session);
+  const revisionRules = useBackend(() => getTariffRevisionRules(), []);
+  // Выбранный клиент — по id, а не строкой: после «Обновить» или нового
+  // тарифа строка приходит заново, и показывать надо свежую.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Клиент, у которого после создания тарифа сразу открыть его цены. */
+  const [openUpcomingFor, setOpenUpcomingFor] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const detailRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (selected) detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selected]);
+    if (selectedId) detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selectedId]);
 
   const data = tariffs.data;
   // Клиенты Shipox и в конце — клиенты калькулятора без заказов: иначе их план не найти.
@@ -150,20 +160,28 @@ export default function ClientTariffsPage() {
               confirmed: false,
               provisional: false,
               plan: item.plan,
+              upcoming: item.upcoming ?? null,
               calculatorOnly: true,
             })),
           ]
         : [],
     [data],
   );
+  const selected = rows.find((row) => row.shipoxCustomerId === selectedId) ?? null;
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Тарифы клиентов"
-        description="По какому тарифному плану калькулятора считается каждый клиент и что в этом плане. Тарифы ведутся в калькуляторе (Supabase), здесь только просмотр."
+        description="По какому тарифному плану калькулятора считается каждый клиент и что в этом плане. Тарифы хранятся в калькуляторе (Supabase); финансист может поправить цены или завести клиенту новый тариф."
         actions={
           <>
+            {canRevise && (
+              <Button onClick={() => setCreating(true)} disabled={!data}>
+                <Plus className="size-4" />
+                Новый тариф клиента
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => {
@@ -219,18 +237,40 @@ export default function ClientTariffsPage() {
             rows={rows}
             date={data.date}
             ordersSince={data.ordersSince ?? null}
-            selectedId={selected?.shipoxCustomerId ?? null}
-            onSelect={setSelected}
+            selectedId={selectedId}
+            onSelect={(row) => {
+              setOpenUpcomingFor(null);
+              setSelectedId(row.shipoxCustomerId);
+            }}
+          />
+
+          <NewTariffDialog
+            open={creating}
+            onOpenChange={setCreating}
+            rows={rows}
+            defaultPlan={data.defaultPlan.plan}
+            defaultClientId={data.defaultPlan.calculatorClientId}
+            earliest={revisionRules.data?.earliestValidFrom ?? null}
+            initialClientId={selectedId}
+            onCreated={(_result, clientRowId) => {
+              setCreating(false);
+              forgetVersions();
+              setRefreshToken((value) => value + 1);
+              setOpenUpcomingFor(clientRowId);
+              setSelectedId(clientRowId);
+            }}
           />
 
           <div ref={detailRef} className="scroll-mt-4">
             {selected?.plan ? (
               <VersionDetail
-                key={selected.plan.versionId}
+                key={`${selected.plan.versionId}:${selected.upcoming?.plan.versionId ?? ""}`}
                 client={selected}
                 plan={selected.plan}
+                upcoming={selected.upcoming ?? null}
+                openUpcoming={openUpcomingFor === selected.shipoxCustomerId}
                 zones={zones.data ?? null}
-                planClients={rows.filter((row) => row.plan?.planId === selected.plan?.planId)}
+                rows={rows}
               />
             ) : selected ? (
               <Card className="p-4 text-sm text-muted-foreground">
@@ -367,6 +407,11 @@ function ClientsTable({
                 {provisional && <Badge variant="outline">по умолчанию · предв.</Badge>}
               </div>
               <div className="text-xs text-muted-foreground">действует {validity(plan)}</div>
+              {row.original.upcoming && (
+                <div className="text-xs font-medium text-primary">
+                  с {formatDay(row.original.upcoming.validFrom)} — «{row.original.upcoming.plan.planName}»
+                </div>
+              )}
             </div>
           );
         },
@@ -420,24 +465,41 @@ interface PriceEditor {
 function VersionDetail({
   client,
   plan,
+  upcoming,
+  openUpcoming,
   zones,
-  planClients,
+  rows,
 }: {
   client: ClientTariffRow;
   plan: TariffPlanRef;
+  /** Свой план клиента, который начнёт действовать позже. */
+  upcoming: UpcomingTariffPlan | null;
+  /** Сразу показать цены будущего плана — после того как его завели. */
+  openUpcoming: boolean;
   zones: TariffZoneMatrix | null;
-  /** Все клиенты, которых считают по этому плану, — кого заденет правка цен. */
-  planClients: ClientTariffRow[];
+  /** Все клиенты на странице — из них видно, кого заденет правка цен. */
+  rows: ClientTariffRow[];
 }) {
   const session = useSession();
   const canRevise = canReviseTariffs(session);
   const rules = useBackend(() => getTariffRevisionRules(), []);
   const earliest = rules.data?.earliestValidFrom ?? null;
+  const upcomingOther = upcoming && upcoming.plan.versionId !== plan.versionId ? upcoming : null;
+
+  const [shownVersionId, setShownVersionId] = useState(
+    openUpcoming && upcomingOther ? upcomingOther.plan.versionId : plan.versionId,
+  );
+  const [versionToken, setVersionToken] = useState(0);
+  const version = useBackend(() => loadVersion(shownVersionId), [shownVersionId, versionToken]);
+  const detail = version.data;
+  const showingPending = shownVersionId !== plan.versionId;
+  // Будущая версия может быть другого плана — тогда и название, и история её.
+  const shownPlan: TariffPlanRef = showingPending && detail ? detail : plan;
 
   const [historyToken, setHistoryToken] = useState(0);
   const history = useBackend(
-    () => (plan.planId === null ? Promise.resolve([]) : listTariffRevisions(plan.planId)),
-    [plan.planId, historyToken],
+    () => (shownPlan.planId === null ? Promise.resolve([]) : listTariffRevisions(shownPlan.planId)),
+    [shownPlan.planId, historyToken],
   );
 
   // Ещё не вступившие цены, заведённые из Shipox Finance: страница по
@@ -450,11 +512,6 @@ function VersionDetail({
     return upcoming[0] ?? null;
   }, [earliest, history.data, plan.versionId]);
 
-  const [shownVersionId, setShownVersionId] = useState(plan.versionId);
-  const [versionToken, setVersionToken] = useState(0);
-  const version = useBackend(() => loadVersion(shownVersionId), [shownVersionId, versionToken]);
-  const detail = version.data;
-  const showingPending = shownVersionId !== plan.versionId;
   const shown: Pick<TariffPlanRef, "validFrom" | "validTo" | "versionName"> = detail ?? plan;
 
   const [editing, setEditing] = useState(false);
@@ -498,9 +555,9 @@ function VersionDetail({
               {client.shipoxCustomerName}
             </div>
             <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-              {plan.planName}
-              {plan.isDefault && <Badge variant="secondary">план по умолчанию</Badge>}
-              {client.provisional && <Badge variant="outline">предварительно</Badge>}
+              {shownPlan.planName}
+              {shownPlan.isDefault && <Badge variant="secondary">план по умолчанию</Badge>}
+              {client.provisional && !showingPending && <Badge variant="outline">предварительно</Badge>}
               {showingPending && <Badge>ещё не действуют</Badge>}
             </CardTitle>
           </div>
@@ -565,9 +622,22 @@ function VersionDetail({
             </Button>
           </div>
         )}
+        {upcomingOther && !showingPending && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+            <span>
+              С {formatDay(upcomingOther.validFrom)} клиент считается по плану «{upcomingOther.plan.planName}»
+            </span>
+            <Button size="sm" variant="outline" onClick={() => showVersion(upcomingOther.plan.versionId)}>
+              Показать цены с {formatDay(upcomingOther.validFrom)}
+            </Button>
+          </div>
+        )}
         {showingPending && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
-            <span>Это цены, которые ещё не действуют. Сейчас заказы считаются по прежним.</span>
+            <span>
+              Это цены, которые ещё не действуют. Сейчас заказы считаются по прежним
+              {shownPlan.planId !== plan.planId && ` — плану «${plan.planName}»`}.
+            </span>
             <Button size="sm" variant="outline" onClick={() => showVersion(plan.versionId)}>
               Показать действующие цены
             </Button>
@@ -588,7 +658,15 @@ function VersionDetail({
             onCancelEdit={stopEditing}
             onSaved={onSaved}
             revisions={history.data ?? []}
-            impact={{ isDefault: plan.isDefault, clients: planClients.map((row) => row.shipoxCustomerName) }}
+            impact={{
+              isDefault: shownPlan.isDefault,
+              clients: rows
+                .filter(
+                  (row) =>
+                    row.plan?.planId === shownPlan.planId || row.upcoming?.plan.planId === shownPlan.planId,
+                )
+                .map((row) => row.shipoxCustomerName),
+            }}
           />
         )}
       </CardContent>
