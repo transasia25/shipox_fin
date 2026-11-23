@@ -17,11 +17,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useBackend } from "@/hooks/use-backend";
 import { createClientTariff } from "@/lib/backend/client";
-import type { ClientTariffRow, NewClientTariffResult, TariffPlanRef } from "@/lib/backend/types";
+import type {
+  ClientTariffRow,
+  NewClientTariffResult,
+  TariffPlanRef,
+  TariffVersionDetail,
+} from "@/lib/backend/types";
 import { formatNumber, formatPrice, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { formatDayKey } from "./price-editor";
 import { parseMoney } from "./price-editing";
+import { signedPrice, surchargeWeightLabel } from "./surcharge-lines";
 import { loadVersion } from "./version-cache";
 
 type Mode = "COPY" | "PER_KG";
@@ -116,6 +122,10 @@ function NewTariffForm({
   );
   const [rates, setRates] = useState<Record<number, string>>({});
   const [copySurcharges, setCopySurcharges] = useState(false);
+  // Копия плана: какие услуги не брать, новая доплата сверх последнего веса, брать ли доплаты.
+  const [excludedServices, setExcludedServices] = useState<Set<number>>(new Set());
+  const [overMaxText, setOverMaxText] = useState("");
+  const [copyKeepSurcharges, setCopyKeepSurcharges] = useState(true);
   // По умолчанию клиент не теряет услуги, на которые ставку не дали.
   const [otherServicesFromBase, setOtherServicesFromBase] = useState(true);
   const [validFrom, setValidFrom] = useState(earliest ?? "");
@@ -128,7 +138,12 @@ function NewTariffForm({
     setSearch("");
     setPlanName(planNameFor(row));
     setInn("");
-    setBaseVersionId(row.plan?.versionId ?? defaultPlan?.versionId ?? null);
+    chooseBase(row.plan?.versionId ?? defaultPlan?.versionId ?? null);
+  };
+  const chooseBase = (versionId: number | null) => {
+    setBaseVersionId(versionId);
+    setExcludedServices(new Set());
+    setOverMaxText("");
   };
 
   // Планы, которые можно взять за основу: все, по которым кто-то считается.
@@ -184,6 +199,9 @@ function NewTariffForm({
   const keepOthers = otherServicesFromBase && unrated.length > 0;
   const baseIsCurrent = basePlan !== null && basePlan.versionId === client?.plan?.versionId;
   const exampleRate = parsedRates.find((item) => item.perKg)?.perKg ?? null;
+  const copy = useMemo(() => copyFacts(base.data ?? null, excludedServices), [base.data, excludedServices]);
+  const overMax = overMaxText.trim() === "" ? null : parseMoney(overMaxText);
+  const copyOk = (copy.anyService || copy.selected.length > 0) && (overMaxText.trim() === "" || overMax !== null);
   const ratesOk = parsedRates.length > 0 && parsedRates.every((item) => item.perKg !== null && item.perKg > 0);
 
   const dateOk = Boolean(validFrom) && (!earliest || validFrom >= earliest);
@@ -196,15 +214,23 @@ function NewTariffForm({
     dateOk &&
     innOk &&
     note.trim().length >= 3 &&
-    (mode === "COPY" || ratesOk) &&
+    (mode === "COPY" ? copyOk : ratesOk) &&
     !upcomingConflict;
 
   const pricingSummary =
     mode === "COPY"
       ? `копия плана «${basePlan?.planName ?? "—"}»` +
-        (base.data
-          ? `: ${formatNumber(base.data.priceRuleCount)} ${plural(base.data.priceRuleCount, "правило цены", "правила цены", "правил цены")}, ${formatNumber(base.data.surcharges.length)} ${plural(base.data.surcharges.length, "доплата", "доплаты", "доплат")}`
-          : "")
+        (copy.excluded.length > 0
+          ? `: только ${copy.selected.map((type) => type.name.toLowerCase()).join(", ")}; ${copy.excluded.map((type) => type.name.toLowerCase()).join(", ")} — у клиента не будет`
+          : "") +
+        (overMax !== null && copy.overMax
+          ? `; свыше ${formatNumber(copy.overMax.weight)} кг — ${formatPrice(overMax)} за каждый кг (в плане ${copy.overMax.current})`
+          : "") +
+        (copy.surcharges.length === 0
+          ? ""
+          : copyKeepSurcharges
+            ? `; доплаты и скидки плана — тоже: ${copy.surcharges.join("; ")}`
+            : "; без доплат и скидок плана")
       : parsedRates.map((item) => `${item.type.name} — ${formatPrice(item.perKg ?? 0)} за кг`).join("; ") +
         (unrated.length === 0
           ? ""
@@ -226,6 +252,13 @@ function NewTariffForm({
         validFrom,
         baseVersionId,
         mode,
+        ...(mode === "COPY"
+          ? {
+              ...(copy.excluded.length > 0 ? { serviceTypeIds: copy.selected.map((type) => type.id) } : {}),
+              ...(overMax !== null ? { overMaxPerKg: overMax } : {}),
+              copySurcharges: copyKeepSurcharges,
+            }
+          : {}),
         ...(mode === "PER_KG"
           ? {
               rates: parsedRates.map((item) => ({ serviceTypeId: item.type.id, perKg: item.perKg! })),
@@ -427,7 +460,7 @@ function NewTariffForm({
                   <select
                     id="new-tariff-base"
                     value={baseVersionId ?? ""}
-                    onChange={(event) => setBaseVersionId(Number(event.target.value))}
+                    onChange={(event) => chooseBase(Number(event.target.value))}
                     className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
                   >
                     {planOptions.map((plan) => (
@@ -441,11 +474,23 @@ function NewTariffForm({
               )}
 
               {mode === "COPY" ? (
-                <p className="text-xs text-muted-foreground">
-                  Все цены, цены по маршрутам и доплаты плана копируются как есть.
-                  {base.data &&
-                    ` В плане ${formatNumber(base.data.priceRuleCount)} ${plural(base.data.priceRuleCount, "правило цены", "правила цены", "правил цены")} и ${formatNumber(base.data.surcharges.length)} ${plural(base.data.surcharges.length, "доплата", "доплаты", "доплат")}.`}
-                </p>
+                <CopyOptions
+                  facts={copy}
+                  loading={!base.data}
+                  planName={basePlan?.planName ?? "—"}
+                  onToggleService={(id) =>
+                    setExcludedServices((previous) => {
+                      const next = new Set(previous);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      return next;
+                    })
+                  }
+                  overMaxText={overMaxText}
+                  onOverMaxText={setOverMaxText}
+                  keepSurcharges={copyKeepSurcharges}
+                  onKeepSurcharges={setCopyKeepSurcharges}
+                />
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">
@@ -485,7 +530,7 @@ function NewTariffForm({
                     <select
                       id="new-tariff-base"
                       value={baseVersionId ?? ""}
-                      onChange={(event) => setBaseVersionId(Number(event.target.value))}
+                      onChange={(event) => chooseBase(Number(event.target.value))}
                       className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
                     >
                       {planOptions.map((plan) => (
@@ -576,6 +621,206 @@ function NewTariffForm({
         </Button>
       </DialogFooter>
     </>
+  );
+}
+
+/** Что есть в плане-основе: услуги, доплата сверх последнего веса, доплаты и скидки. */
+interface CopyFacts {
+  /** В плане есть цены «для любой услуги» — по услугам его не разделить. */
+  anyService: boolean;
+  selected: Array<{ id: number; name: string }>;
+  excluded: Array<{ id: number; name: string }>;
+  /** Последняя строка веса и доплата за кг сверх неё в плане, например «5 000». */
+  overMax: { weight: number; current: string } | null;
+  /** Доплаты и скидки плана по-человечески: «−10% от 41 кг». */
+  surcharges: string[];
+}
+
+function copyFacts(
+  detail: TariffVersionDetail | null,
+  excludedIds: Set<number>,
+): CopyFacts {
+  if (!detail)
+    return {
+      anyService: false,
+      selected: [],
+      excluded: [],
+      overMax: null,
+      surcharges: [],
+    };
+  const serviceIds = new Set<number>();
+  let anyService = false;
+  for (const id of [
+    ...detail.zoneGrids.map((grid) => grid.serviceTypeId),
+    ...detail.routeRules.map((rule) => rule.serviceTypeId),
+  ]) {
+    if (id === null) anyService = true;
+    else serviceIds.add(id);
+  }
+  const services = detail.serviceTypes.filter((type) =>
+    serviceIds.has(type.id),
+  );
+  const excluded = anyService
+    ? []
+    : services.filter((type) => excludedIds.has(type.id));
+  const selected = anyService
+    ? services
+    : services.filter((type) => !excludedIds.has(type.id));
+
+  const grids = detail.zoneGrids.filter(
+    (grid) =>
+      grid.serviceTypeId === null ||
+      selected.some((type) => type.id === grid.serviceTypeId),
+  );
+  const weights = new Set<number>();
+  const extras = new Set<number>();
+  for (const grid of grids) {
+    const last = grid.rows[grid.rows.length - 1];
+    if (!last) continue;
+    weights.add(last.weightFrom);
+    for (const cell of last.cells)
+      if (cell && !cell.perUnit) extras.add(cell.extraPerKg);
+  }
+  const extraList = [...extras].sort((a, b) => a - b);
+  const overMax =
+    weights.size === 1 && extraList.length > 0
+      ? {
+          weight: [...weights][0],
+          current:
+            extraList.length === 1
+              ? `${formatPrice(extraList[0])} за кг`
+              : `от ${formatPrice(extraList[0])} до ${formatPrice(extraList[extraList.length - 1])} за кг`,
+        }
+      : null;
+
+  const surcharges = detail.surcharges
+    .filter(
+      (item) =>
+        item.serviceTypeId === null ||
+        selected.some((type) => type.id === item.serviceTypeId),
+    )
+    .map((item) => {
+      const amount =
+        item.amountType === "PERCENT"
+          ? `${item.amount < 0 ? "−" : "+"}${formatNumber(Math.abs(item.amount))}%`
+          : `${signedPrice(item.amount)}${item.amountType === "FIXED" ? "" : " за кг"}`;
+      const where = item.toCity
+        ? ` в ${item.toCity}`
+        : item.toIsHub === false
+          ? " в район"
+          : "";
+      return `${amount}${where}, ${surchargeWeightLabel(item.weightFrom, item.weightTo)}`;
+    });
+  return { anyService, selected, excluded, overMax, surcharges };
+}
+
+function CopyOptions({
+  facts,
+  loading,
+  planName,
+  onToggleService,
+  overMaxText,
+  onOverMaxText,
+  keepSurcharges,
+  onKeepSurcharges,
+}: {
+  facts: CopyFacts;
+  loading: boolean;
+  planName: string;
+  onToggleService: (id: number) => void;
+  overMaxText: string;
+  onOverMaxText: (text: string) => void;
+  keepSurcharges: boolean;
+  onKeepSurcharges: (value: boolean) => void;
+}) {
+  if (loading)
+    return <p className="text-xs text-muted-foreground">Загружаю план…</p>;
+  const overMaxInvalid =
+    overMaxText.trim() !== "" && parseMoney(overMaxText) === null;
+  const all = [...facts.selected, ...facts.excluded].sort(
+    (a, b) => a.id - b.id,
+  );
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Цены копируются как в плане «{planName}». Ниже можно убрать услуги,
+        которых нет в договоре, и поменять доплату за вес сверх таблицы.
+        Отдельные цены потом правятся в таблице.
+      </p>
+
+      <div className="space-y-1.5">
+        <div className="text-xs text-muted-foreground">
+          Какие услуги есть у клиента
+        </div>
+        {facts.anyService ? (
+          <p className="text-xs text-muted-foreground">
+            В этом плане есть цены сразу для всех услуг — он копируется целиком.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {all.map((type) => (
+              <label key={type.id} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={!facts.excluded.some((item) => item.id === type.id)}
+                  onCheckedChange={() => onToggleService(type.id)}
+                />
+                {type.name}
+              </label>
+            ))}
+          </div>
+        )}
+        {facts.excluded.length > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            {facts.excluded.map((type) => type.name).join(", ")} у клиента не
+            будет: такие заказы калькулятор не посчитает.
+          </p>
+        )}
+        {facts.selected.length === 0 && !facts.anyService && (
+          <p className="text-xs text-destructive">
+            Отметьте хотя бы одну услугу.
+          </p>
+        )}
+      </div>
+
+      {facts.overMax && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <Label htmlFor="new-tariff-over-max" className="font-normal">
+            Свыше {formatNumber(facts.overMax.weight)} кг — за каждый следующий
+            кг
+          </Label>
+          <Input
+            id="new-tariff-over-max"
+            inputMode="decimal"
+            value={overMaxText}
+            onChange={(event) => onOverMaxText(event.target.value)}
+            aria-invalid={overMaxInvalid || undefined}
+            placeholder="как в плане"
+            className="h-8 w-32 text-right tabular-nums"
+          />
+          <span className="text-xs text-muted-foreground">
+            в плане «{planName}»: {facts.overMax.current}
+          </span>
+        </div>
+      )}
+
+      {facts.surcharges.length > 0 && (
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox
+            className="mt-0.5"
+            checked={keepSurcharges}
+            onCheckedChange={(value) => onKeepSurcharges(value === true)}
+          />
+          <span>
+            Взять и доплаты/скидки плана «{planName}»
+            <span className="block text-xs text-muted-foreground">
+              {facts.surcharges.slice(0, 4).join("; ")}
+              {facts.surcharges.length > 4 &&
+                ` и ещё ${formatNumber(facts.surcharges.length - 4)}`}
+            </span>
+          </span>
+        </label>
+      )}
+    </div>
   );
 }
 

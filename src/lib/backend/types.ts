@@ -1267,6 +1267,10 @@ export interface NewClientTariffInput {
   copySurcharges?: boolean;
   /** Услуги без ставки — по ценам базового плана. */
   otherServicesFromBase?: boolean;
+  /** Копия плана: какие услуги копировать; не задано — все. */
+  serviceTypeIds?: number[];
+  /** Копия плана: новая доплата за каждый кг сверх последней строки веса. */
+  overMaxPerKg?: number;
   note: string;
 }
 
