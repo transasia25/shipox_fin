@@ -128,6 +128,8 @@ function NewTariffForm({
   const [note, setNote] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** Клиент калькулятора общий с другими: `true` — завести этому отдельного, `false` — план всем; `null` — не выбрано. */
+  const [separate, setSeparate] = useState<boolean | null>(null);
 
   const pick = (row: ClientTariffRow) => {
     setClientId(row.shipoxCustomerId);
@@ -135,6 +137,7 @@ function NewTariffForm({
     setPlanName(planNameFor(row));
     setInn("");
     setServiceRows(null);
+    setSeparate(null);
   };
 
   // Планы, из которых можно взять цены: все, по которым кто-то считается.
@@ -219,6 +222,15 @@ function NewTariffForm({
       )
     : [];
   const previousOwnPlan = ownCalculatorClient && client?.plan && !client.plan.isDefault ? client.plan : null;
+  const sharingNames = sharing.map((row) => row.shipoxCustomerName).join(", ");
+  const separating = sharing.length > 0 && separate === true;
+  /** Отдельный клиент калькулятора — с тем же ИНН, что у общего: юрлицо одно. */
+  const separateName = (() => {
+    if (!client || !ownCalculatorClient) return "";
+    const name = client.shipoxCustomerName.replace(/\s+/g, " ").trim();
+    const sharedInn = innOf(ownCalculatorClient.name);
+    return innOf(name) || !sharedInn ? name : `${sharedInn} ${name}`;
+  })();
 
   const rowErrors = (rowsShown ?? []).map((row) =>
     rowError(row, row.choice.kind === "PLAN" ? detailById.get(row.choice.versionId) : undefined),
@@ -238,6 +250,7 @@ function NewTariffForm({
     innOk &&
     note.trim().length >= 3 &&
     pricingOk &&
+    (sharing.length === 0 || separate !== null) &&
     !upcomingConflict;
 
   /** Что будет с каждой услугой — для подтверждения. */
@@ -273,6 +286,7 @@ function NewTariffForm({
           ? { calculatorClientId: client.calculatorClient!.id }
           : { shipoxCustomerId: client.shipoxCustomerId }),
         ...(inn && !ownCalculatorClient ? { inn } : {}),
+        ...(separating ? { separateClient: true } : {}),
         planName: planName.trim(),
         validFrom,
         services: toServiceSources(rowsShown, currentVersionId),
@@ -303,7 +317,12 @@ function NewTariffForm({
         <ul className="list-disc space-y-1.5 pl-5 text-sm">
           <li>
             Клиент: <span className="font-medium">{client.shipoxCustomerName}</span>
-            {ownCalculatorClient ? (
+            {separating ? (
+              <span className="text-muted-foreground">
+                {" "}
+                — в калькуляторе будет заведён отдельный клиент «{separateName}»
+              </span>
+            ) : ownCalculatorClient ? (
               <span className="text-muted-foreground"> — в калькуляторе «{ownCalculatorClient.name}»</span>
             ) : (
               <span className="text-muted-foreground">
@@ -325,7 +344,13 @@ function NewTariffForm({
               ? `Прежний план «${previousOwnPlan.planName}» у клиента будет действовать по ${formatDayKey(previousDay(validFrom))}.`
               : `До ${formatDayKey(validFrom)} клиент считается как сейчас — по «${client.plan?.planName ?? "—"}».`}
           </li>
-          {sharing.length > 0 && (
+          {separating && (
+            <li>
+              У {sharingNames} ничего не меняется — {plural(sharing.length, "он остаётся", "они остаются", "они остаются")}{" "}
+              на «{ownCalculatorClient?.name}» и своём плане.
+            </li>
+          )}
+          {sharing.length > 0 && !separating && (
             <li>
               Тот же клиент калькулятора у {sharing.map((row) => row.shipoxCustomerName).join(", ")} — новый план
               будет и у {plural(sharing.length, "него", "них", "них")}.
@@ -413,6 +438,30 @@ function NewTariffForm({
                 У клиента уже заведён план «{upcomingConflict.plan.planName}» с{" "}
                 {formatDayKey(upcomingConflict.validFrom)}. Поправьте его цены в таблице или выберите дату позже.
               </Warning>
+            )}
+
+            {sharing.length > 0 && ownCalculatorClient && (
+              <section className="space-y-1.5">
+                <div className="text-sm font-medium">Клиент калькулятора общий</div>
+                <p className="text-xs text-muted-foreground">
+                  «{client.shipoxCustomerName}» и {sharingNames} считаются через одного клиента калькулятора —
+                  «{ownCalculatorClient.name}». План назначается ему, поэтому новый тариф лёг бы на всех.
+                </p>
+                <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="Кому новый тариф">
+                  <ChoiceCard
+                    checked={separate === true}
+                    onSelect={() => setSeparate(true)}
+                    title={`Только «${client.shipoxCustomerName}»`}
+                    text={`Завести отдельного клиента «${separateName}» с тем же ИНН. До начала тарифа он считается как сейчас, у ${sharingNames} ничего не меняется.`}
+                  />
+                  <ChoiceCard
+                    checked={separate === false}
+                    onSelect={() => setSeparate(false)}
+                    title="Всем вместе"
+                    text={`Новый тариф будет и у ${sharingNames}.`}
+                  />
+                </div>
+              </section>
             )}
 
             {!ownCalculatorClient && (
@@ -685,6 +734,35 @@ function ServiceRowEditor({
 
 function planNameFor(row: ClientTariffRow): string {
   return row.shipoxCustomerName.replace(/^\d{6,12}\s+/, "").replace(/\s+/g, " ").trim();
+}
+
+/** Вариант выбора карточкой: заголовок и что будет. */
+function ChoiceCard({
+  checked,
+  onSelect,
+  title,
+  text,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  text: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={checked}
+      onClick={onSelect}
+      className={cn(
+        "space-y-0.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+        checked ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-muted",
+      )}
+    >
+      <div className="font-medium">{title}</div>
+      <div className="text-xs text-muted-foreground">{text}</div>
+    </button>
+  );
 }
 
 function Warning({ children }: { children: React.ReactNode }) {
