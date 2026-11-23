@@ -1254,23 +1254,19 @@ export interface CalculatorOnlyClient {
   upcoming?: UpcomingTariffPlan | null;
 }
 
-/** Новый тариф клиента: копия плана или одна ставка за кг на все зоны. */
+/** Откуда цены одной услуги нового тарифа: как в версии плана или одна ставка за кг. */
+export type NewTariffServiceSource =
+  | { serviceTypeId: number; kind: "PLAN"; versionId: number; overMaxPerKg?: number; surcharges: boolean }
+  | { serviceTypeId: number; kind: "PER_KG"; perKg: number; surchargesFromVersionId?: number };
+
+/** Новый тариф клиента: цены по услугам. Услуг, которых нет в списке, у клиента не будет. */
 export interface NewClientTariffInput {
   shipoxCustomerId?: string;
   calculatorClientId?: number;
   inn?: string;
   planName: string;
   validFrom: string;
-  baseVersionId: number;
-  mode: "COPY" | "PER_KG";
-  rates?: Array<{ serviceTypeId: number; perKg: number }>;
-  copySurcharges?: boolean;
-  /** Услуги без ставки — по ценам базового плана. */
-  otherServicesFromBase?: boolean;
-  /** Копия плана: какие услуги копировать; не задано — все. */
-  serviceTypeIds?: number[];
-  /** Копия плана: новая доплата за каждый кг сверх последней строки веса. */
-  overMaxPerKg?: number;
+  services: NewTariffServiceSource[];
   note: string;
 }
 
@@ -1378,6 +1374,16 @@ export interface TariffRevisionPrices {
   pricePerUnit: number | null;
 }
 
+/** Из плана убрана услуга — запись журнала вместо списка цен. */
+export interface TariffServiceRemoval {
+  kind: "REMOVE_SERVICE";
+  serviceTypeId: number;
+  serviceName: string;
+}
+
+/** Запись журнала: изменённая цена или убранная услуга. */
+export type TariffRevisionEntry = TariffRevisionChange | TariffServiceRemoval;
+
 export interface TariffRevisionChange {
   ruleId: number;
   serviceTypeId: number | null;
@@ -1396,7 +1402,7 @@ export interface TariffRevision {
   newVersionId: number;
   /** Первый день новых цен, ISO. */
   validFrom: string;
-  changes: TariffRevisionChange[];
+  changes: TariffRevisionEntry[];
   note: string | null;
   changedBy: string;
   changedAt: string;
@@ -1406,5 +1412,5 @@ export interface TariffRevisionResult {
   planId: number;
   newVersionId: number;
   validFrom: string;
-  changes: TariffRevisionChange[];
+  changes: TariffRevisionEntry[];
 }

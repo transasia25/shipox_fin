@@ -332,6 +332,20 @@ export function reviseTariffPrices(
   });
 }
 
+/**
+ * Убрать услугу из плана с даты. У версии, которая ещё не вступила в силу, —
+ * на месте; иначе — новая версия плана, прошлые заказы не меняются.
+ */
+export function removeTariffService(
+  versionId: number,
+  body: { serviceTypeId: number; validFrom: string; note: string },
+): Promise<TariffRevisionResult> {
+  return request(`/client-tariffs/versions/${versionId}/remove-service`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 /** Кто, когда и что менял в ценах плана. */
 export function listTariffRevisions(planId: number): Promise<TariffRevision[]> {
   return request(`/client-tariffs/plans/${planId}/revisions`);
