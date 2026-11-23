@@ -1269,10 +1269,14 @@ export interface NewClientTariffInput {
   validFrom: string;
   services: NewTariffServiceSource[];
   note: string;
+  /** Клиент калькулятора общий с другими клиентами Shipox — завести этому отдельного. */
+  separateClient?: boolean;
 }
 
 export interface NewClientTariffResult {
   calculatorClient: { id: number; name: string; created: boolean };
+  /** Общий клиент калькулятора, от которого отделён новый. Нет у старого бэкенда. */
+  separatedFrom?: { id: number; name: string } | null;
   planId: number;
   planName: string;
   versionId: number;
