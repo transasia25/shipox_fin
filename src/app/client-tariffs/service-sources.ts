@@ -12,17 +12,18 @@ import { signedPrice, surchargeWeightLabel } from "./surcharge-lines";
 export type SourceChoice =
   | { kind: "PLAN"; versionId: number }
   | { kind: "PER_KG" }
+  | { kind: "PER_ORDER" }
   | { kind: "NONE" };
 
 /** Строка услуги, как её заполняют в окне. */
 export interface ServiceRow {
   serviceTypeId: number;
   choice: SourceChoice;
-  /** Ставка за кг — для PER_KG. */
-  perKgText: string;
+  /** Своя цена: за кг — для PER_KG, за заказ — для PER_ORDER. */
+  rateText: string;
   /** Новая доплата за кг сверх последнего веса — для PLAN; пусто — как в плане. */
   overMaxText: string;
-  /** Брать доплаты и скидки: для PLAN — этого плана, для PER_KG — нынешнего плана клиента. */
+  /** Брать доплаты и скидки: для PLAN — этого плана, для своей цены — нынешнего плана клиента. */
   surcharges: boolean;
 }
 
@@ -44,7 +45,7 @@ export function defaultRows(current: TariffVersionDetail): ServiceRow[] {
       choice: planHasService(current, type.id)
         ? { kind: "PLAN", versionId: current.versionId }
         : { kind: "NONE" },
-      perKgText: "",
+      rateText: "",
       overMaxText: "",
       surcharges: planHasService(current, type.id),
     }));
@@ -91,9 +92,10 @@ export function surchargeLines(detail: TariffVersionDetail, serviceTypeId: numbe
 
 /** Что не так со строкой; `null` — всё в порядке. */
 export function rowError(row: ServiceRow, detail: TariffVersionDetail | undefined): string | null {
-  if (row.choice.kind === "PER_KG") {
-    const rate = parseMoney(row.perKgText);
-    return rate === null || rate <= 0 ? "укажите ставку за кг" : null;
+  if (row.choice.kind === "PER_KG" || row.choice.kind === "PER_ORDER") {
+    const rate = parseMoney(row.rateText);
+    if (rate !== null && rate > 0) return null;
+    return row.choice.kind === "PER_KG" ? "укажите ставку за кг" : "укажите цену за заказ";
   }
   if (row.choice.kind === "PLAN") {
     if (row.overMaxText.trim() !== "" && parseMoney(row.overMaxText) === null) return "доплата за кг — число";
@@ -102,18 +104,38 @@ export function rowError(row: ServiceRow, detail: TariffVersionDetail | undefine
   return null;
 }
 
+/** Своя цена строки (за кг или за заказ) — у всех услуг так же, вместе с доплатами. */
+export function sameForAll(rows: ServiceRow[], serviceTypeId: number): ServiceRow[] {
+  const from = rows.find((row) => row.serviceTypeId === serviceTypeId);
+  if (!from) return rows;
+  return rows.map((row) => ({ ...row, choice: from.choice, rateText: from.rateText, surcharges: from.surcharges }));
+}
+
+/** Все ли услуги посчитаны так же, как эта строка. */
+export function allSameAs(rows: ServiceRow[], serviceTypeId: number): boolean {
+  const from = rows.find((row) => row.serviceTypeId === serviceTypeId);
+  return (
+    from !== undefined &&
+    rows.every(
+      (row) =>
+        row.choice.kind === from.choice.kind &&
+        parseMoney(row.rateText) === parseMoney(from.rateText) &&
+        row.surcharges === from.surcharges,
+    )
+  );
+}
+
 /** Строки окна → запрос серверу. Услуги «нет у клиента» в запрос не попадают. */
 export function toServiceSources(rows: ServiceRow[], currentVersionId: number): ServiceSourceInput[] {
   return rows.flatMap((row): ServiceSourceInput[] => {
     if (row.choice.kind === "NONE") return [];
+    const surcharges = row.surcharges ? { surchargesFromVersionId: currentVersionId } : {};
     if (row.choice.kind === "PER_KG") {
+      return [{ serviceTypeId: row.serviceTypeId, kind: "PER_KG", perKg: parseMoney(row.rateText) ?? 0, ...surcharges }];
+    }
+    if (row.choice.kind === "PER_ORDER") {
       return [
-        {
-          serviceTypeId: row.serviceTypeId,
-          kind: "PER_KG",
-          perKg: parseMoney(row.perKgText) ?? 0,
-          ...(row.surcharges ? { surchargesFromVersionId: currentVersionId } : {}),
-        },
+        { serviceTypeId: row.serviceTypeId, kind: "PER_ORDER", perOrder: parseMoney(row.rateText) ?? 0, ...surcharges },
       ];
     }
     const overMax = row.overMaxText.trim() === "" ? null : parseMoney(row.overMaxText);

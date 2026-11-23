@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { TariffPriceCell, TariffVersionDetail, TariffZoneGrid } from "@/lib/backend/types";
-import { defaultRows, overMaxInfo, rowError, surchargeLines, toServiceSources, type ServiceRow } from "./service-sources";
+import {
+  allSameAs,
+  defaultRows,
+  overMaxInfo,
+  rowError,
+  sameForAll,
+  surchargeLines,
+  toServiceSources,
+  type ServiceRow,
+} from "./service-sources";
 
 const cell = (extraPerKg: number): TariffPriceCell => ({
   ruleId: 1,
@@ -60,10 +69,10 @@ describe("цены по услугам", () => {
 
   it("Euphoria: две услуги как в RCD со своей доплатой, остальное как сейчас → запрос", () => {
     const rows: ServiceRow[] = [
-      { serviceTypeId: 1, choice: { kind: "PLAN", versionId: 68 }, perKgText: "", overMaxText: "4 000", surcharges: false },
-      { serviceTypeId: 2, choice: { kind: "PLAN", versionId: 70 }, perKgText: "", overMaxText: "", surcharges: true },
-      { serviceTypeId: 3, choice: { kind: "NONE" }, perKgText: "", overMaxText: "", surcharges: true },
-      { serviceTypeId: 4, choice: { kind: "PER_KG" }, perKgText: "3000", overMaxText: "", surcharges: false },
+      { serviceTypeId: 1, choice: { kind: "PLAN", versionId: 68 }, rateText: "", overMaxText: "4 000", surcharges: false },
+      { serviceTypeId: 2, choice: { kind: "PLAN", versionId: 70 }, rateText: "", overMaxText: "", surcharges: true },
+      { serviceTypeId: 3, choice: { kind: "NONE" }, rateText: "", overMaxText: "", surcharges: true },
+      { serviceTypeId: 4, choice: { kind: "PER_KG" }, rateText: "3000", overMaxText: "", surcharges: false },
     ];
     expect(toServiceSources(rows, 70)).toEqual([
       { serviceTypeId: 1, kind: "PLAN", versionId: 68, overMaxPerKg: 4000, surcharges: false },
@@ -76,11 +85,26 @@ describe("цены по услугам", () => {
   });
 
   it("ошибки строки: нет ставки, кривая доплата, услуги нет в плане", () => {
-    const base: ServiceRow = { serviceTypeId: 2, choice: { kind: "PLAN", versionId: 70 }, perKgText: "", overMaxText: "", surcharges: true };
+    const base: ServiceRow = { serviceTypeId: 2, choice: { kind: "PLAN", versionId: 70 }, rateText: "", overMaxText: "", surcharges: true };
     expect(rowError(base, standard)).toMatch(/такой услуги нет/);
     expect(rowError({ ...base, serviceTypeId: 1 }, standard)).toBeNull();
     expect(rowError({ ...base, serviceTypeId: 1, overMaxText: "abc" }, standard)).toMatch(/число/);
-    expect(rowError({ ...base, choice: { kind: "PER_KG" }, perKgText: "0" }, standard)).toMatch(/ставку/);
+    expect(rowError({ ...base, choice: { kind: "PER_KG" }, rateText: "0" }, standard)).toMatch(/ставку/);
+    expect(rowError({ ...base, choice: { kind: "PER_ORDER" }, rateText: "" }, standard)).toMatch(/цену за заказ/);
     expect(rowError({ ...base, choice: { kind: "NONE" } }, standard)).toBeNull();
+  });
+
+  it("TBC express: 80 000 за заказ — так же для всех услуг → запрос", () => {
+    const rows = defaultRows(standard).map((row) =>
+      row.serviceTypeId === 4 ? { ...row, choice: { kind: "PER_ORDER" as const }, rateText: "80 000", surcharges: false } : row,
+    );
+    expect(allSameAs(rows, 4)).toBe(false);
+    const all = sameForAll(rows, 4);
+    expect(allSameAs(all, 4)).toBe(true);
+    expect(toServiceSources(all, 70)).toEqual([
+      { serviceTypeId: 1, kind: "PER_ORDER", perOrder: 80000 },
+      { serviceTypeId: 2, kind: "PER_ORDER", perOrder: 80000 },
+      { serviceTypeId: 4, kind: "PER_ORDER", perOrder: 80000 },
+    ]);
   });
 });

@@ -1257,7 +1257,8 @@ export interface CalculatorOnlyClient {
 /** Откуда цены одной услуги нового тарифа: как в версии плана или одна ставка за кг. */
 export type NewTariffServiceSource =
   | { serviceTypeId: number; kind: "PLAN"; versionId: number; overMaxPerKg?: number; surcharges: boolean }
-  | { serviceTypeId: number; kind: "PER_KG"; perKg: number; surchargesFromVersionId?: number };
+  | { serviceTypeId: number; kind: "PER_KG"; perKg: number; surchargesFromVersionId?: number }
+  | { serviceTypeId: number; kind: "PER_ORDER"; perOrder: number; surchargesFromVersionId?: number };
 
 /** Новый тариф клиента: цены по услугам. Услуг, которых нет в списке, у клиента не будет. */
 export interface NewClientTariffInput {
