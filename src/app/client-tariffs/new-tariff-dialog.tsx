@@ -33,6 +33,8 @@ import {
   surchargeLines,
   toServiceSources,
   type ServiceRow,
+  allSameAs,
+  sameForAll,
 } from "./service-sources";
 import { loadVersion } from "./version-cache";
 
@@ -242,9 +244,10 @@ function NewTariffForm({
   const summaryLines = (rowsShown ?? []).map((row) => {
     const name = serviceName(row.serviceTypeId);
     if (row.choice.kind === "NONE") return `${name} — нет у клиента`;
-    if (row.choice.kind === "PER_KG") {
+    if (row.choice.kind === "PER_KG" || row.choice.kind === "PER_ORDER") {
+      const rate = formatPrice(parseMoney(row.rateText) ?? 0);
       return (
-        `${name} — ${formatPrice(parseMoney(row.perKgText) ?? 0)} за каждый кг во всех зонах` +
+        `${name} — ${rate} ${row.choice.kind === "PER_KG" ? "за каждый кг" : "за заказ любого веса"} во всех зонах` +
         (row.surcharges ? `, с доплатами как сейчас` : "")
       );
     }
@@ -470,6 +473,8 @@ function NewTariffForm({
                       planOptions={planOptions}
                       planLabel={planLabel}
                       onChange={(patch) => updateRow(row.serviceTypeId, patch)}
+                      allSame={allSameAs(rowsShown, row.serviceTypeId)}
+                      onSameForAll={() => setServiceRows(sameForAll(rowsShown, row.serviceTypeId))}
                     />
                   ))}
                 </div>
@@ -537,6 +542,8 @@ function ServiceRowEditor({
   planOptions,
   planLabel,
   onChange,
+  allSame,
+  onSameForAll,
 }: {
   row: ServiceRow;
   name: string;
@@ -548,19 +555,31 @@ function ServiceRowEditor({
   planOptions: TariffPlanRef[];
   planLabel: (versionId: number) => string;
   onChange: (patch: Partial<ServiceRow>) => void;
+  /** Все услуги уже посчитаны так же, как эта. */
+  allSame: boolean;
+  /** Свою цену этой строки — всем услугам. */
+  onSameForAll: () => void;
 }) {
+  const own = row.choice.kind === "PER_KG" || row.choice.kind === "PER_ORDER";
   const value =
-    row.choice.kind === "PLAN" ? `plan:${row.choice.versionId}` : row.choice.kind === "PER_KG" ? "per-kg" : "none";
+    row.choice.kind === "PLAN"
+      ? `plan:${row.choice.versionId}`
+      : row.choice.kind === "PER_KG"
+        ? "per-kg"
+        : row.choice.kind === "PER_ORDER"
+          ? "per-order"
+          : "none";
   const choose = (next: string) => {
     if (next === "none") onChange({ choice: { kind: "NONE" } });
     else if (next === "per-kg") onChange({ choice: { kind: "PER_KG" }, surcharges: false });
+    else if (next === "per-order") onChange({ choice: { kind: "PER_ORDER" }, surcharges: false });
     else onChange({ choice: { kind: "PLAN", versionId: Number(next.slice(5)) }, overMaxText: "", surcharges: true });
   };
   const info = detail ? overMaxInfo(detail, row.serviceTypeId) : null;
   const surcharges = row.choice.kind === "PLAN" && detail ? surchargeLines(detail, row.serviceTypeId) : [];
-  const currentSurcharges =
-    row.choice.kind === "PER_KG" && currentDetail ? surchargeLines(currentDetail, row.serviceTypeId) : [];
-  const rate = row.choice.kind === "PER_KG" ? parseMoney(row.perKgText) : null;
+  const currentSurcharges = own && currentDetail ? surchargeLines(currentDetail, row.serviceTypeId) : [];
+  const rate = own ? parseMoney(row.rateText) : null;
+  const rateOk = rate !== null && rate > 0;
 
   return (
     <div className="space-y-2 px-3 py-2.5">
@@ -585,27 +604,36 @@ function ServiceRowEditor({
               </option>
             ))}
           <option value="per-kg">Одна ставка за кг во всех зонах</option>
+          <option value="per-order">Одна цена за заказ — любой вес, все зоны</option>
           <option value="none">Нет у клиента</option>
         </select>
       </div>
 
       <div className="space-y-1.5 sm:pl-[9.5rem]">
-        {row.choice.kind === "PER_KG" && (
+        {own && (
           <>
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Input
-                aria-label={`${name}: ставка за кг`}
+                aria-label={`${name}: ${row.choice.kind === "PER_KG" ? "ставка за кг" : "цена за заказ"}`}
                 inputMode="decimal"
-                value={row.perKgText}
-                onChange={(event) => onChange({ perKgText: event.target.value })}
-                aria-invalid={(row.perKgText !== "" && error !== null) || undefined}
-                placeholder="3 000"
+                value={row.rateText}
+                onChange={(event) => onChange({ rateText: event.target.value })}
+                aria-invalid={(row.rateText !== "" && error !== null) || undefined}
+                placeholder={row.choice.kind === "PER_KG" ? "3 000" : "80 000"}
                 className="h-8 w-32 text-right tabular-nums"
               />
               <span className="text-xs text-muted-foreground">
-                за каждый кг
-                {rate ? ` · 1 кг — ${formatPrice(rate)}, 2 кг — ${formatPrice(rate * 2)}, 10 кг — ${formatPrice(rate * 10)}` : ""}
+                {row.choice.kind === "PER_KG" ? "за каждый кг" : "за заказ"}
+                {rateOk &&
+                  (row.choice.kind === "PER_KG"
+                    ? ` · 1 кг — ${formatPrice(rate)}, 2 кг — ${formatPrice(rate * 2)}, 10 кг — ${formatPrice(rate * 10)}`
+                    : ` · 0,5 кг, 3 кг и 30 кг — одинаково ${formatPrice(rate)}`)}
               </span>
+              {rateOk && !allSame && (
+                <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={onSameForAll}>
+                  Так же для всех услуг
+                </Button>
+              )}
             </div>
             {currentSurcharges.length > 0 && (
               <label className="flex items-start gap-2 text-xs">
@@ -647,7 +675,7 @@ function ServiceRowEditor({
         {row.choice.kind === "NONE" && (
           <p className="text-xs text-muted-foreground">Заказы этой услуги калькулятор не посчитает.</p>
         )}
-        {error && (row.choice.kind !== "PER_KG" || row.perKgText !== "") && (
+        {error && (!own || row.rateText !== "") && (
           <p className="text-xs text-destructive">{error}</p>
         )}
       </div>
