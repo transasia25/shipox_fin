@@ -18,8 +18,11 @@ import { Label } from "@/components/ui/label";
 import { reviseTariffPrices } from "@/lib/backend/client";
 import type {
   TariffRevision,
+  TariffRevisionChange,
+  TariffRevisionEntry,
   TariffRevisionPrices,
   TariffRevisionResult,
+  TariffServiceRemoval,
   TariffZoneGrid,
 } from "@/lib/backend/types";
 import { formatDate, formatDateTime, formatNumber, formatPrice, plural } from "@/lib/format";
@@ -36,6 +39,11 @@ import {
   type RuleOrigin,
 } from "./price-editing";
 import { surchargeWeightLabel } from "./surcharge-lines";
+
+/** Запись журнала «убрана услуга», а не изменённая цена. */
+function isServiceRemoval(entry: TariffRevisionEntry): entry is TariffServiceRemoval {
+  return (entry as TariffServiceRemoval).kind === "REMOVE_SERVICE";
+}
 
 /** `2026-12-01` → «01.12.2026». */
 export function formatDayKey(dateKey: string): string {
@@ -463,6 +471,8 @@ export function RevisionHistory({
           const inPlace = revision.previousVersionId === revision.newVersionId;
           // Новый тариф клиента: в журнале без списка цен — их источник в пояснении.
           const created = revision.changes.length === 0;
+          const removed = revision.changes.filter(isServiceRemoval);
+          const prices = revision.changes.filter((change): change is TariffRevisionChange => !isServiceRemoval(change));
           const from = formatDate(revision.validFrom);
           return (
             <li key={revision.id} className="px-3 py-2 text-sm">
@@ -470,12 +480,17 @@ export function RevisionHistory({
                 <summary className="cursor-pointer list-none">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <span>
-                      {created ? `Тариф заведён с ${from}` : inPlace ? `Исправлены цены с ${from}` : `Новые цены с ${from}`}
-                      {!created && (
+                      {created
+                        ? `Тариф заведён с ${from}`
+                        : removed.length > 0
+                          ? `Убрана услуга с ${from}: ${removed.map((item) => item.serviceName).join(", ")}`
+                          : inPlace
+                            ? `Исправлены цены с ${from}`
+                            : `Новые цены с ${from}`}
+                      {prices.length > 0 && (
                         <span className="text-muted-foreground">
                           {" · "}
-                          {formatNumber(revision.changes.length)}{" "}
-                          {plural(revision.changes.length, "цена", "цены", "цен")}
+                          {formatNumber(prices.length)} {plural(prices.length, "цена", "цены", "цен")}
                         </span>
                       )}
                     </span>
@@ -486,7 +501,7 @@ export function RevisionHistory({
                   {revision.note && <div className="text-xs text-muted-foreground">{revision.note}</div>}
                 </summary>
                 <ul className="mt-2 space-y-0.5 text-xs">
-                  {revision.changes.map((change) => (
+                  {prices.map((change) => (
                     <li key={change.ruleId} className="flex flex-wrap gap-x-2 tabular-nums">
                       <span className="text-muted-foreground">
                         {serviceName(change.serviceTypeId)}, зона {change.zone ?? "—"}, от{" "}

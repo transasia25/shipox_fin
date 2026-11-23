@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import { CircleMinus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,7 @@ import {
   type RuleOrigin,
 } from "./price-editing";
 import { NewTariffDialog } from "./new-tariff-dialog";
+import { RemoveServiceDialog, servicesOfVersion } from "./remove-service-dialog";
 import { forgetVersions, loadVersion, prefetchVersion } from "./version-cache";
 import { destinationsByZone, referenceHub, zoneHints, zoneIssues, zoneLookup, type ZoneHint } from "./zones";
 
@@ -537,10 +538,20 @@ function VersionDetail({
       }
     : null;
 
+  const [removing, setRemoving] = useState(false);
+  /** Кого заденет правка: клиенты, которых считают по показанному плану сейчас или будут с даты. */
+  const impact: PlanImpact = {
+    isDefault: shownPlan.isDefault,
+    clients: rows
+      .filter((row) => row.plan?.planId === shownPlan.planId || row.upcoming?.plan.planId === shownPlan.planId)
+      .map((row) => row.shipoxCustomerName),
+  };
+
   const onSaved = (result: TariffRevisionResult) => {
     // Цены поменялись — всё, что запомнили в этой вкладке, загрузится заново.
     forgetVersions();
     stopEditing();
+    setRemoving(false);
     setHistoryToken((value) => value + 1);
     if (result.newVersionId === shownVersionId) setVersionToken((value) => value + 1);
     else setShownVersionId(result.newVersionId);
@@ -561,11 +572,32 @@ function VersionDetail({
               {showingPending && <Badge>ещё не действуют</Badge>}
             </CardTitle>
           </div>
-          {canRevise && detail && detail.zoneGrids.length > 0 && !editing && (
-            <Button variant="outline" onClick={() => setEditing(true)}>
-              <Pencil className="size-4" />
-              Изменить цены
-            </Button>
+          {canRevise && detail && !editing && (
+            <div className="flex flex-wrap gap-2">
+              {detail.zoneGrids.length > 0 && (
+                <Button variant="outline" onClick={() => setEditing(true)}>
+                  <Pencil className="size-4" />
+                  Изменить цены
+                </Button>
+              )}
+              {/* План по умолчанию — общий для всех без своего плана: услуги из него не убирают. */}
+              {!shownPlan.isDefault && servicesOfVersion(detail).length > 1 && (
+                <Button variant="outline" onClick={() => setRemoving(true)}>
+                  <CircleMinus className="size-4" />
+                  Убрать услугу
+                </Button>
+              )}
+            </div>
+          )}
+          {canRevise && detail && (
+            <RemoveServiceDialog
+              open={removing}
+              onOpenChange={setRemoving}
+              detail={detail}
+              earliest={earliest}
+              impact={impact}
+              onSaved={onSaved}
+            />
           )}
         </div>
         <p className="text-sm text-muted-foreground">
@@ -658,15 +690,7 @@ function VersionDetail({
             onCancelEdit={stopEditing}
             onSaved={onSaved}
             revisions={history.data ?? []}
-            impact={{
-              isDefault: shownPlan.isDefault,
-              clients: rows
-                .filter(
-                  (row) =>
-                    row.plan?.planId === shownPlan.planId || row.upcoming?.plan.planId === shownPlan.planId,
-                )
-                .map((row) => row.shipoxCustomerName),
-            }}
+            impact={impact}
           />
         )}
       </CardContent>
