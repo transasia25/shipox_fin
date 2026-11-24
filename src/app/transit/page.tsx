@@ -40,6 +40,7 @@ import {
   listDetachedLegs,
   listPendingLegGroups,
   listTransitRunDays,
+  listTransitRunOrders,
   listTransitRunStats,
   listTransitProblems,
   listTransitRoutes,
@@ -312,6 +313,7 @@ export default function TransitPage() {
         error={runDays.error}
         loading={runDays.loading && !runDays.data}
         onRetry={runDays.reload}
+        window={window}
       />
 
       <div className="grid gap-5 xl:grid-cols-2">
@@ -506,13 +508,17 @@ function RunDays({
   error,
   loading,
   onRetry,
+  window,
 }: {
   runs: TransitRunDay[];
   error: string | null;
   loading: boolean;
   onRetry: () => void;
+  window: { from: string; to: string };
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  /// Рейс, по которому открыт состав.
+  const [shown, setShown] = useState<TransitRunDay | null>(null);
 
   // Направление и сторона — один ход машины: по ним и сворачиваем.
   const routes = useMemo(() => {
@@ -636,7 +642,12 @@ function RunDays({
 
                     {expanded &&
                       route.runs.map((run) => (
-                        <tr key={`${route.key}-${run.day}`} className="bg-muted/40 text-xs">
+                        <tr
+                          key={`${route.key}-${run.day}`}
+                          className="cursor-pointer bg-muted/40 text-xs hover:bg-accent/40"
+                          onClick={() => setShown(run)}
+                          title="Показать заказы рейса"
+                        >
                           <td className="py-1.5 pr-2 pl-12 whitespace-nowrap tabular-nums">
                             {formatDate(run.day)}
                           </td>
@@ -659,7 +670,106 @@ function RunDays({
           </table>
         </div>
       )}
+
+      <Dialog open={shown !== null} onOpenChange={(next) => !next && setShown(null)}>
+        <DialogContent className="flex max-h-[85vh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          {shown && <RunOrders run={shown} window={window} />}
+        </DialogContent>
+      </Dialog>
     </Card>
+  );
+}
+
+/** Заказы одного рейса: из чего сложилась его ставка. */
+function RunOrders({
+  run,
+  window,
+}: {
+  run: TransitRunDay;
+  window: { from: string; to: string };
+}) {
+  const orders = useBackend(
+    () =>
+      listTransitRunOrders({
+        ...window,
+        route: run.routeCode,
+        direction: run.direction,
+        day: run.day.slice(0, 10),
+      }),
+    [run.routeCode, run.direction, run.day, window.from, window.to],
+  );
+
+  const rows = orders.data ?? [];
+  const paid = rows.reduce((sum, row) => sum + row.cost, 0);
+
+  return (
+    <>
+      <DialogHeader className="shrink-0 gap-1 border-b border-border p-4 pr-12">
+        <DialogTitle>
+          {run.routeCode} · {run.routeName} · {SIDE[run.direction] ?? run.direction}
+        </DialogTitle>
+        <DialogDescription>
+          {`Рейс ${formatDate(run.day)} · заказов ${formatNumber(run.orders)} · ${formatWeight(run.weightKg)} · ставка ${formatNumber(run.rate)}`}
+        </DialogDescription>
+      </DialogHeader>
+
+      {orders.error ? (
+        <div className="p-4">
+          <ErrorState message={orders.error} onRetry={orders.reload} />
+        </div>
+      ) : orders.data === null ? (
+        <Skeleton className="m-4 h-64" />
+      ) : rows.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          Заказы этого рейса не нашлись.
+        </p>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="px-4 py-2 text-left font-medium">Заказ</th>
+                <th className="px-2 py-2 text-left font-medium">Клиент</th>
+                <th className="px-2 py-2 text-left font-medium">Куда</th>
+                <th className="px-2 py-2 text-right font-medium">Вес</th>
+                <th className="px-4 py-2 text-right font-medium">Доля рейса</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((order) => (
+                <tr key={order.orderNumber}>
+                  <td className="px-4 py-2">
+                    <Link
+                      href={`/orders/${order.orderNumber}`}
+                      className="font-medium tabular-nums hover:underline"
+                    >
+                      {order.orderNumber}
+                    </Link>
+                    <div className="text-xs text-muted-foreground">{order.statusLabel}</div>
+                  </td>
+                  <td className="max-w-48 truncate px-2 py-2">{order.customerName}</td>
+                  <td className="px-2 py-2 text-muted-foreground">{order.receiverCity}</td>
+                  <td className="px-2 py-2 text-right whitespace-nowrap tabular-nums text-muted-foreground">
+                    {formatWeight(order.weightKg)}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <Money value={order.cost} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Итог должен сойтись со ставкой рейса: доли считаются по весу внутри него. */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-2.5 text-sm">
+        <span className="text-muted-foreground">
+          Итого по {formatNumber(rows.length)} {plural(rows.length, "заказу", "заказам", "заказам")}
+        </span>
+        <Money value={paid} className="font-medium" />
+      </div>
+    </>
   );
 }
 

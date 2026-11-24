@@ -1001,6 +1001,17 @@ export interface TransitRunDay {
   rate: number;
 }
 
+/** Заказ в составе одного рейса межгорода и его доля в ставке. */
+export interface TransitRunOrder {
+  orderNumber: string;
+  customerName: string | null;
+  senderCity: string | null;
+  receiverCity: string | null;
+  statusLabel: string;
+  weightKg: number;
+  cost: number;
+}
+
 export interface TransitRunStats {
   /** Сколько всего заказов ушло в транзит за период. */
   orders: number;
