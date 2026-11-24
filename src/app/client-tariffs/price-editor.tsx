@@ -22,6 +22,7 @@ import type {
   TariffRevisionEntry,
   TariffRevisionPrices,
   TariffRevisionResult,
+  TariffServicePrices,
   TariffServiceRemoval,
   TariffZoneGrid,
 } from "@/lib/backend/types";
@@ -43,6 +44,11 @@ import { surchargeWeightLabel } from "./surcharge-lines";
 /** Запись журнала «убрана услуга», а не изменённая цена. */
 function isServiceRemoval(entry: TariffRevisionEntry): entry is TariffServiceRemoval {
   return (entry as TariffServiceRemoval).kind === "REMOVE_SERVICE";
+}
+
+/** Запись журнала «цены услуги заданы заново». */
+function isServicePrices(entry: TariffRevisionEntry): entry is TariffServicePrices {
+  return (entry as TariffServicePrices).kind === "SERVICE_PRICES";
 }
 
 /** `2026-12-01` → «01.12.2026». */
@@ -472,7 +478,10 @@ export function RevisionHistory({
           // Новый тариф клиента: в журнале без списка цен — их источник в пояснении.
           const created = revision.changes.length === 0;
           const removed = revision.changes.filter(isServiceRemoval);
-          const prices = revision.changes.filter((change): change is TariffRevisionChange => !isServiceRemoval(change));
+          const rebuilt = revision.changes.filter(isServicePrices);
+          const prices = revision.changes.filter(
+            (change): change is TariffRevisionChange => !isServiceRemoval(change) && !isServicePrices(change),
+          );
           const from = formatDate(revision.validFrom);
           return (
             <li key={revision.id} className="px-3 py-2 text-sm">
@@ -484,7 +493,9 @@ export function RevisionHistory({
                         ? `Тариф заведён с ${from}`
                         : removed.length > 0
                           ? `Убрана услуга с ${from}: ${removed.map((item) => item.serviceName).join(", ")}`
-                          : inPlace
+                          : rebuilt.length > 0
+                            ? `Цены «${rebuilt.map((item) => item.serviceName).join("», «")}» заданы заново с ${from}`
+                            : inPlace
                             ? `Исправлены цены с ${from}`
                             : `Новые цены с ${from}`}
                       {prices.length > 0 && (
@@ -501,6 +512,13 @@ export function RevisionHistory({
                   {revision.note && <div className="text-xs text-muted-foreground">{revision.note}</div>}
                 </summary>
                 <ul className="mt-2 space-y-0.5 text-xs">
+                  {rebuilt.map((item) => (
+                    <li key={item.serviceTypeId} className="text-muted-foreground">
+                      {item.zones.length > 0 && `Шаги веса по зонам ${item.zones.join(", ")}`}
+                      {item.zones.length > 0 && item.routes.length > 0 && "; "}
+                      {item.routes.length > 0 && `отдельно: ${item.routes.join(", ")}`}
+                    </li>
+                  ))}
                   {prices.map((change) => (
                     <li key={change.ruleId} className="flex flex-wrap gap-x-2 tabular-nums">
                       <span className="text-muted-foreground">
