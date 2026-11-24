@@ -494,11 +494,12 @@ export default function TransitPage() {
 const SIDE: Record<string, string> = { FORWARD: "туда", REVERSE: "обратно" };
 
 /**
- * Каждый рейс по дням: когда уехал и сколько за него заплачено.
+ * Рейсы межгорода: направления свёрнуты, детализация по дням — по клику.
  *
- * В дашборде те же деньги свёрнуты по направлениям — здесь видно каждый день
- * отдельно: в какие дни машина шла и во сколько обошёлся именно тот рейс.
- * Заодно видна загрузка: рейс с одним заказом стоит столько же, сколько полный.
+ * В дашборде те же деньги показаны итогом по направлениям, и этого хватает,
+ * пока не спросят «а в какие дни машина шла». Поэтому здесь сверху то же самое,
+ * а внутри — каждый рейс со своей датой. Заодно видна загрузка: рейс с одним
+ * заказом стоит столько же, сколько полный.
  */
 function RunDays({
   runs,
@@ -511,16 +512,58 @@ function RunDays({
   loading: boolean;
   onRetry: () => void;
 }) {
-  const total = runs.reduce((sum, run) => sum + run.rate, 0);
+  const [open, setOpen] = useState<string | null>(null);
+
+  // Направление и сторона — один ход машины: по ним и сворачиваем.
+  const routes = useMemo(() => {
+    const byRoute = new Map<
+      string,
+      {
+        key: string;
+        routeCode: string;
+        routeName: string;
+        direction: string;
+        runs: TransitRunDay[];
+        orders: number;
+        weightKg: number;
+        paid: number;
+      }
+    >();
+
+    for (const run of runs) {
+      const key = `${run.routeCode}|${run.direction}`;
+      const entry = byRoute.get(key) ?? {
+        key,
+        routeCode: run.routeCode,
+        routeName: run.routeName,
+        direction: run.direction,
+        runs: [],
+        orders: 0,
+        weightKg: 0,
+        paid: 0,
+      };
+      entry.runs.push(run);
+      entry.orders += run.orders;
+      entry.weightKg += run.weightKg;
+      entry.paid += run.rate;
+      byRoute.set(key, entry);
+    }
+
+    return [...byRoute.values()].sort(
+      (a, b) => b.paid - a.paid || a.routeCode.localeCompare(b.routeCode),
+    );
+  }, [runs]);
+
+  const total = routes.reduce((sum, route) => sum + route.paid, 0);
 
   return (
     <Card className="gap-0 py-0">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
         <div>
-          <div className="text-base font-medium">Рейсы по дням: сколько заплачено</div>
+          <div className="text-base font-medium">Рейсы межгорода: сколько заплачено</div>
           <p className="text-sm text-muted-foreground">
-            Рейс — день, в который по направлению в эту сторону уехали заказы. Сумма за рейс
-            равна ставке направления, поэтому полупустой рейс стоит столько же, сколько полный.
+            Рейс — день, в который по направлению в эту сторону уехали заказы. Нажмите на строку —
+            покажет каждый рейс с датой и суммой.
           </p>
         </div>
         {runs.length > 0 && (
@@ -537,45 +580,81 @@ function RunDays({
         </div>
       ) : loading ? (
         <Skeleton className="m-4 h-48" />
-      ) : runs.length === 0 ? (
+      ) : routes.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-muted-foreground">
           За период заказы в транзит не уходили.
         </p>
       ) : (
-        <div className="max-h-[32rem] overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
+            <thead className="text-xs text-muted-foreground">
               <tr className="border-b border-border">
-                <th className="px-4 py-2 text-left font-medium">Дата</th>
-                <th className="px-2 py-2 text-left font-medium">Направление</th>
-                <th className="px-2 py-2 text-left font-medium">Сторона</th>
+                <th className="px-4 py-2 text-left font-medium">Направление</th>
+                <th className="px-2 py-2 text-right font-medium">Рейсов</th>
                 <th className="px-2 py-2 text-right font-medium">Заказов</th>
                 <th className="px-2 py-2 text-right font-medium">Вес</th>
                 <th className="px-4 py-2 text-right font-medium">Заплачено</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {runs.map((run) => (
-                <tr key={`${run.day}-${run.routeCode}-${run.direction}`}>
-                  <td className="px-4 py-2 whitespace-nowrap tabular-nums">
-                    {formatDate(run.day)}
-                  </td>
-                  <td className="px-2 py-2">
-                    <span className="font-medium">{run.routeCode}</span>
-                    <span className="ml-2 text-muted-foreground">{run.routeName}</span>
-                  </td>
-                  <td className="px-2 py-2 text-muted-foreground">
-                    {SIDE[run.direction] ?? run.direction}
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums">{formatNumber(run.orders)}</td>
-                  <td className="px-2 py-2 text-right whitespace-nowrap text-muted-foreground tabular-nums">
-                    {formatWeight(run.weightKg)}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <Money value={run.rate} className="font-medium" />
-                  </td>
-                </tr>
-              ))}
+              {routes.map((route) => {
+                const expanded = open === route.key;
+                return (
+                  <Fragment key={route.key}>
+                    <tr
+                      className="cursor-pointer hover:bg-accent/40"
+                      onClick={() => setOpen(expanded ? null : route.key)}
+                    >
+                      <td className="px-4 py-2">
+                        <span className="flex items-center gap-2">
+                          <ChevronRight
+                            className={cn(
+                              "size-4 text-muted-foreground transition-transform",
+                              expanded && "rotate-90",
+                            )}
+                          />
+                          <Badge variant="secondary">{route.routeCode}</Badge>
+                          <span className="font-medium">{route.routeName}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {SIDE[route.direction] ?? route.direction}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-right font-medium tabular-nums">
+                        {formatNumber(route.runs.length)}
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                        {formatNumber(route.orders)}
+                      </td>
+                      <td className="px-2 py-2 text-right whitespace-nowrap tabular-nums text-muted-foreground">
+                        {formatWeight(route.weightKg)}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <Money value={route.paid} className="font-medium" />
+                      </td>
+                    </tr>
+
+                    {expanded &&
+                      route.runs.map((run) => (
+                        <tr key={`${route.key}-${run.day}`} className="bg-muted/40 text-xs">
+                          <td className="py-1.5 pr-2 pl-12 whitespace-nowrap tabular-nums">
+                            {formatDate(run.day)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right text-muted-foreground">1</td>
+                          <td className="px-2 py-1.5 text-right tabular-nums">
+                            {formatNumber(run.orders)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums text-muted-foreground">
+                            {formatWeight(run.weightKg)}
+                          </td>
+                          <td className="px-4 py-1.5 text-right tabular-nums">
+                            <Money value={run.rate} />
+                          </td>
+                        </tr>
+                      ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
