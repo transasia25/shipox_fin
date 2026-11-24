@@ -3,6 +3,8 @@ import type {
   ClientTariffs,
   NewClientTariffInput,
   NewClientTariffResult,
+  CalculatorCity,
+  ServicePricesInput,
   TariffRevision,
   TariffRevisionResult,
   TariffVersionDetail,
@@ -344,6 +346,22 @@ export function removeTariffService(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Цены одной услуги заново: шаги веса по зонам и цены по маршрутам. Остальные
+ * услуги и надбавки не меняются.
+ */
+export function setTariffServicePrices(versionId: number, body: ServicePricesInput): Promise<TariffRevisionResult> {
+  return request(`/client-tariffs/versions/${versionId}/service-prices`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Города калькулятора — для цен по маршрутам. */
+export function listCalculatorCities(): Promise<CalculatorCity[]> {
+  return request("/client-tariffs/cities");
 }
 
 /** Кто, когда и что менял в ценах плана. */

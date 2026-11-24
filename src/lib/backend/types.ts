@@ -1327,6 +1327,9 @@ export interface TariffRouteRule {
   serviceTypeId: number | null;
   from: string | null;
   to: string | null;
+  /** Города пары — у цен по маршруту «город → город». Нет у старого бэкенда. */
+  fromCityId?: number | null;
+  toCityId?: number | null;
   isLocal: boolean | null;
   weightFrom: number;
   basePrice: number | null;
@@ -1386,8 +1389,39 @@ export interface TariffServiceRemoval {
   serviceName: string;
 }
 
-/** Запись журнала: изменённая цена или убранная услуга. */
-export type TariffRevisionEntry = TariffRevisionChange | TariffServiceRemoval;
+/** Цены услуги заданы заново: шаги веса по зонам и маршруты. */
+export interface TariffServicePrices {
+  kind: "SERVICE_PRICES";
+  serviceTypeId: number;
+  serviceName: string;
+  zones: number[];
+  /** «Tashkent → Tashkent». */
+  routes: string[];
+}
+
+/** Запись журнала: изменённая цена, убранная услуга или цены услуги заново. */
+export type TariffRevisionEntry = TariffRevisionChange | TariffServiceRemoval | TariffServicePrices;
+
+/** Шаг веса: с какого кг, цена на этом весе и доплата за каждый следующий кг. */
+export interface TariffPriceStep {
+  weightFrom: number;
+  basePrice: number;
+  extraPerKg: number;
+}
+
+export interface ServicePricesInput {
+  serviceTypeId: number;
+  zones: Array<{ zone: number; steps: TariffPriceStep[] }>;
+  routes: Array<{ fromCityId: number; toCityId: number; steps: TariffPriceStep[] }>;
+  validFrom: string;
+  note: string;
+}
+
+export interface CalculatorCity {
+  id: number;
+  name: string;
+  isHub: boolean;
+}
 
 export interface TariffRevisionChange {
   ruleId: number;

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { CircleMinus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import { CircleMinus, Pencil, Plus, RefreshCw, Route, TriangleAlert } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,7 @@ import {
 } from "./price-editing";
 import { NewTariffDialog } from "./new-tariff-dialog";
 import { RemoveServiceDialog, servicesOfVersion } from "./remove-service-dialog";
+import { ServicePricesDialog } from "./service-prices-dialog";
 import { forgetVersions, loadVersion, prefetchVersion } from "./version-cache";
 import { destinationsByZone, referenceHub, zoneHints, zoneIssues, zoneLookup, type ZoneHint } from "./zones";
 
@@ -539,6 +540,7 @@ function VersionDetail({
     : null;
 
   const [removing, setRemoving] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   /** Кого заденет правка: клиенты, которых считают по показанному плану сейчас или будут с даты. */
   const impact: PlanImpact = {
     isDefault: shownPlan.isDefault,
@@ -552,6 +554,7 @@ function VersionDetail({
     forgetVersions();
     stopEditing();
     setRemoving(false);
+    setRebuilding(false);
     setHistoryToken((value) => value + 1);
     if (result.newVersionId === shownVersionId) setVersionToken((value) => value + 1);
     else setShownVersionId(result.newVersionId);
@@ -580,6 +583,14 @@ function VersionDetail({
                   Изменить цены
                 </Button>
               )}
+              <Button
+                variant="outline"
+                onClick={() => setRebuilding(true)}
+                title="Свои шаги веса по зонам и отдельные цены для пар городов"
+              >
+                <Route className="size-4" />
+                Шаги веса и маршруты
+              </Button>
               {/* План по умолчанию — общий для всех без своего плана: услуги из него не убирают. */}
               {!shownPlan.isDefault && servicesOfVersion(detail).length > 1 && (
                 <Button variant="outline" onClick={() => setRemoving(true)}>
@@ -588,6 +599,17 @@ function VersionDetail({
                 </Button>
               )}
             </div>
+          )}
+          {canRevise && detail && (
+            <ServicePricesDialog
+              open={rebuilding}
+              onOpenChange={setRebuilding}
+              detail={detail}
+              zones={zones}
+              earliest={earliest}
+              impact={impact}
+              onSaved={onSaved}
+            />
           )}
           {canRevise && detail && (
             <RemoveServiceDialog
