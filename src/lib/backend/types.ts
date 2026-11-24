@@ -984,6 +984,23 @@ export interface TransitRunStat {
   stops: TransitRunStop[];
 }
 
+/**
+ * Один рейс межгорода: день, направление и сколько за него заплачено.
+ *
+ * Рейсом считается день, в который по направлению в эту сторону уехал хотя бы
+ * один заказ — отправки машин склады пока не отмечают. Поэтому сумма за рейс
+ * равна ставке направления.
+ */
+export interface TransitRunDay {
+  routeCode: string;
+  routeName: string;
+  direction: TransitDirection;
+  day: string;
+  orders: number;
+  weightKg: number;
+  rate: number;
+}
+
 export interface TransitRunStats {
   /** Сколько всего заказов ушло в транзит за период. */
   orders: number;

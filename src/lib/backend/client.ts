@@ -58,6 +58,7 @@ import type {
   ScanJournalRow,
   ScanSummary,
   TransitDirection,
+  TransitRunDay,
   TransitRunStats,
   TransitLoadResult,
   TransitLoadScan,
@@ -693,6 +694,13 @@ export function updateCarrier(id: string, body: Partial<CarrierInput>): Promise<
     method: "PATCH",
     body: JSON.stringify(body),
   });
+}
+
+/** Каждый рейс по дням: когда уехал и сколько за него заплачено. */
+export function listTransitRunDays(
+  period: { from?: string; to?: string } = {},
+): Promise<TransitRunDay[]> {
+  return request("/transit/runs", { params: period });
 }
 
 export function listTransitRoutes(): Promise<TransitRoute[]> {

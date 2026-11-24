@@ -39,6 +39,7 @@ import {
   getTransitSummary,
   listDetachedLegs,
   listPendingLegGroups,
+  listTransitRunDays,
   listTransitRunStats,
   listTransitProblems,
   listTransitRoutes,
@@ -46,8 +47,13 @@ import {
   rebuildTransitLegs,
   setRouteCost,
 } from "@/lib/backend/client";
-import type { TransitRoute, TransitSummary, TransitTrip } from "@/lib/backend/types";
-import { formatDate, formatDateTime, formatNumber, formatWeight } from "@/lib/format";
+import type {
+  TransitRoute,
+  TransitRunDay,
+  TransitSummary,
+  TransitTrip,
+} from "@/lib/backend/types";
+import { formatDate, formatDateTime, formatNumber, formatWeight, plural } from "@/lib/format";
 import { CARRIER_KIND_LABEL, legLabel, shortWarehouse, TRANSIT_PROBLEM_LABEL } from "@/lib/transit";
 import { useFinanceStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -64,6 +70,7 @@ export default function TransitPage() {
 
   const summary = useBackend(() => getTransitSummary(window), [window.from, window.to]);
   const runStats = useBackend(() => listTransitRunStats(window), [window.from, window.to]);
+  const runDays = useBackend(() => listTransitRunDays(window), [window.from, window.to]);
   const pending = useBackend(() => listPendingLegGroups(), []);
   const problems = useBackend(() => listTransitProblems(), []);
   const detached = useBackend(() => listDetachedLegs(), []);
@@ -300,6 +307,13 @@ export default function TransitPage() {
         )}
       </Card>
 
+      <RunDays
+        runs={runDays.data ?? []}
+        error={runDays.error}
+        loading={runDays.loading && !runDays.data}
+        onRetry={runDays.reload}
+      />
+
       <div className="grid gap-5 xl:grid-cols-2">
         <Card className="gap-0 py-0">
           <div className="flex items-baseline justify-between gap-2 border-b border-border px-4 py-3">
@@ -476,6 +490,100 @@ export default function TransitPage() {
  * обратно собирает по дороге — важнее, где его погрузили и кто это сделал.
  * Заказ можно снять: он вернётся в список ждущих.
  */
+/** Сторона рейса по-человечески. */
+const SIDE: Record<string, string> = { FORWARD: "туда", REVERSE: "обратно" };
+
+/**
+ * Каждый рейс по дням: когда уехал и сколько за него заплачено.
+ *
+ * В дашборде те же деньги свёрнуты по направлениям — здесь видно каждый день
+ * отдельно: в какие дни машина шла и во сколько обошёлся именно тот рейс.
+ * Заодно видна загрузка: рейс с одним заказом стоит столько же, сколько полный.
+ */
+function RunDays({
+  runs,
+  error,
+  loading,
+  onRetry,
+}: {
+  runs: TransitRunDay[];
+  error: string | null;
+  loading: boolean;
+  onRetry: () => void;
+}) {
+  const total = runs.reduce((sum, run) => sum + run.rate, 0);
+
+  return (
+    <Card className="gap-0 py-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+        <div>
+          <div className="text-base font-medium">Рейсы по дням: сколько заплачено</div>
+          <p className="text-sm text-muted-foreground">
+            Рейс — день, в который по направлению в эту сторону уехали заказы. Сумма за рейс
+            равна ставке направления, поэтому полупустой рейс стоит столько же, сколько полный.
+          </p>
+        </div>
+        {runs.length > 0 && (
+          <div className="text-sm text-muted-foreground">
+            {formatNumber(runs.length)} {plural(runs.length, "рейс", "рейса", "рейсов")} на{" "}
+            <Money value={total} className="font-medium text-foreground" />
+          </div>
+        )}
+      </div>
+
+      {error ? (
+        <div className="p-4">
+          <ErrorState message={error} onRetry={onRetry} />
+        </div>
+      ) : loading ? (
+        <Skeleton className="m-4 h-48" />
+      ) : runs.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          За период заказы в транзит не уходили.
+        </p>
+      ) : (
+        <div className="max-h-[32rem] overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="px-4 py-2 text-left font-medium">Дата</th>
+                <th className="px-2 py-2 text-left font-medium">Направление</th>
+                <th className="px-2 py-2 text-left font-medium">Сторона</th>
+                <th className="px-2 py-2 text-right font-medium">Заказов</th>
+                <th className="px-2 py-2 text-right font-medium">Вес</th>
+                <th className="px-4 py-2 text-right font-medium">Заплачено</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {runs.map((run) => (
+                <tr key={`${run.day}-${run.routeCode}-${run.direction}`}>
+                  <td className="px-4 py-2 whitespace-nowrap tabular-nums">
+                    {formatDate(run.day)}
+                  </td>
+                  <td className="px-2 py-2">
+                    <span className="font-medium">{run.routeCode}</span>
+                    <span className="ml-2 text-muted-foreground">{run.routeName}</span>
+                  </td>
+                  <td className="px-2 py-2 text-muted-foreground">
+                    {SIDE[run.direction] ?? run.direction}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatNumber(run.orders)}</td>
+                  <td className="px-2 py-2 text-right whitespace-nowrap text-muted-foreground tabular-nums">
+                    {formatWeight(run.weightKg)}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <Money value={run.rate} className="font-medium" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function TripDetail({
   trip,
   onChanged,
