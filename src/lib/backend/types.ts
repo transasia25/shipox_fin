@@ -1251,6 +1251,22 @@ export interface TariffPlanRef {
   isDefault: boolean;
 }
 
+/**
+ * Цена по имени отправителя: договор вида «заказы от ALIFTECH — 26 785 за заказ».
+ *
+ * Такое измерение калькулятор не знает, поэтому правило живёт у нас и
+ * применяется до обращения к плану клиента. Нет у старого бэкенда.
+ */
+export interface SenderPriceRule {
+  senderName: string;
+  price: number;
+  /** YYYY-MM-DD */
+  validFrom: string;
+  /** YYYY-MM-DD; `null` — бессрочно. */
+  validTo: string | null;
+  note: string | null;
+}
+
 export interface ClientTariffRow {
   shipoxCustomerId: string;
   shipoxCustomerName: string;
@@ -1266,6 +1282,8 @@ export interface ClientTariffRow {
   upcoming?: UpcomingTariffPlan | null;
   /** Клиент есть только в калькуляторе: свой план назначен, заказов в Shipox Finance нет. */
   calculatorOnly?: boolean;
+  /** Цены по имени отправителя: считаются у нас, в плане калькулятора их нет. */
+  senderRules?: SenderPriceRule[];
 }
 
 /** План клиента, который начнёт действовать позже, — например, заведённый сегодня с завтра. */

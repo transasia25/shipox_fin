@@ -33,6 +33,7 @@ import type {
   TariffVersionDetail,
   TariffZoneGrid,
   TariffZoneMatrix,
+  SenderPriceRule,
   UpcomingTariffPlan,
 } from "@/lib/backend/types";
 import { formatDate, formatDateTime, formatNumber, formatPrice, plural } from "@/lib/format";
@@ -76,6 +77,40 @@ const MATCH_LABEL: Record<TariffMatchSource, string> = {
 /** Дата из Supabase приходит как `YYYY-MM-DD`; полдень — чтобы пояс не сдвинул день. */
 function formatDay(value: string | null): string {
   return value ? formatDate(`${value}T12:00:00`) : "—";
+}
+
+/** Срок действия цены по отправителю: «с 01.10.2026» или «01.10.2026 — 31.12.2026». */
+function senderPeriod(rule: SenderPriceRule): string {
+  return rule.validTo
+    ? `${formatDay(rule.validFrom)} — ${formatDay(rule.validTo)}`
+    : `с ${formatDay(rule.validFrom)}`;
+}
+
+/**
+ * Цены по имени отправителя — отдельным блоком над планом.
+ *
+ * Такие договоры считаются нашим правилом **до** калькулятора, и в плане
+ * клиента их не видно вовсе. Без этого блока цена заказа берётся «ниоткуда»:
+ * в таблице плана её не найти ни по весу, ни по зоне.
+ */
+function SenderRules({ rules }: { rules: SenderPriceRule[] }) {
+  if (rules.length === 0) return null;
+  return (
+    <div className="space-y-1 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+      <div className="font-medium">Цены по имени отправителя</div>
+      {rules.map((rule) => (
+        <div key={`${rule.senderName}:${rule.validFrom}`}>
+          Заказы от «{rule.senderName}» — <span className="tabular-nums">{formatPrice(rule.price)}</span> за
+          заказ любого веса, {senderPeriod(rule)}
+          {rule.note && <span className="text-muted-foreground"> · {rule.note}</span>}
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground">
+        Считается у нас, а не в калькуляторе, и важнее плана: если имя отправителя совпало, вес и зона
+        не смотрятся. Остальные заказы клиента считаются по плану ниже.
+      </p>
+    </div>
+  );
 }
 
 function validity(plan: Pick<TariffPlanRef, "validFrom" | "validTo">): string {
@@ -275,9 +310,12 @@ export default function ClientTariffsPage() {
                 rows={rows}
               />
             ) : selected ? (
-              <Card className="p-4 text-sm text-muted-foreground">
-                На {formatDay(data.date)} у клиента «{selected.shipoxCustomerName}» нет действующей версии
-                плана: калькулятор не посчитает его заказы.
+              <Card className="gap-3 p-4">
+                <p className="text-sm text-muted-foreground">
+                  На {formatDay(data.date)} у клиента «{selected.shipoxCustomerName}» нет действующей
+                  версии плана: калькулятор не посчитает его заказы.
+                </p>
+                <SenderRules rules={selected.senderRules ?? []} />
               </Card>
             ) : (
               <Card className="p-4 text-sm text-muted-foreground">
@@ -340,6 +378,15 @@ function ClientsTable({
                   ? `в калькуляторе: ${row.original.calculatorClient.name}`
                   : "в калькуляторе не найден"}
             </div>
+            {/* Договор по отправителю меняет цену сильнее плана — виден сразу в списке. */}
+            {(row.original.senderRules ?? []).map((rule) => (
+              <div
+                key={`${rule.senderName}:${rule.validFrom}`}
+                className="text-xs font-medium text-primary"
+              >
+                от «{rule.senderName}» — {formatPrice(rule.price)} за заказ
+              </div>
+            ))}
           </div>
         ),
       },
@@ -686,6 +733,7 @@ function VersionDetail({
             </Button>
           </div>
         )}
+        <SenderRules rules={client.senderRules ?? []} />
         {showingPending && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
             <span>
