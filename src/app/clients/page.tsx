@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui-kit/error-state";
@@ -70,12 +71,14 @@ export default function ClientsPage() {
   const [running, setRunning] = useState(false);
   /// Какие заказы считать: все по дате создания или только доставленные.
   const [basis, setBasis] = useState<PricingBasis>("CREATED");
+  /// Отменённые заказы синхронизация тянет наравне с остальными — их выключают здесь.
+  const [excludeCancelled, setExcludeCancelled] = useState(false);
   /// Клиент, по которому открыта детализация заказов.
   const [detail, setDetail] = useState<PricingClientRow | null>(null);
 
   const summary = useBackend(
-    () => getPricingSummary({ ...window, basis }),
-    [window.from, window.to, basis],
+    () => getPricingSummary({ ...window, basis, excludeCancelled: excludeCancelled || undefined }),
+    [window.from, window.to, basis, excludeCancelled],
   );
   const unmatched = useBackend(() => listUnmatchedClients(), []);
 
@@ -224,8 +227,29 @@ export default function ClientsPage() {
               ]}
             />
           </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Отменённые</Label>
+            <label className="flex h-9 cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={excludeCancelled}
+                onCheckedChange={(value) => setExcludeCancelled(value === true)}
+              />
+              Не считать отменённые
+            </label>
+          </div>
           <div className="max-w-xl space-y-0.5 text-xs text-muted-foreground">
             <p>{BASIS_HINT[basis]}</p>
+            {/* Отменённые заказы тянет синхронизация: в периоде по дате создания
+                они видны наравне с остальными, и в «Заказов» их видно тоже. */}
+            {excludeCancelled ? (
+              <p>
+                Отменённые заказы не считаются: ни в количестве, ни в сумме, ни в себестоимости.
+                Доля рейса у остальных заказов от этого не меняется — ставка рейса делится по весу
+                всех его коробок, включая отменённые.
+              </p>
+            ) : (
+              <p>Отменённые заказы тоже считаются — их можно выключить галочкой.</p>
+            )}
             {/* Прогон расчёта отбор не читает: версия тарифа выбирается по дате создания. */}
             {basis !== "CREATED" && (
               <p>Кнопки пересчёта всегда идут по дате создания — фильтр меняет только отчёт.</p>
@@ -323,7 +347,13 @@ export default function ClientsPage() {
             узкой панели они не читались. */}
         <DialogContent className="flex max-h-[90vh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100vw-4rem))]">
           {detail && (
-            <ClientOrders client={detail} from={window.from} to={window.to} basis={basis} />
+            <ClientOrders
+              client={detail}
+              from={window.from}
+              to={window.to}
+              basis={basis}
+              excludeCancelled={excludeCancelled}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -342,15 +372,25 @@ function ClientOrders({
   from,
   to,
   basis,
+  excludeCancelled,
 }: {
   client: PricingClientRow;
   from: string;
   to: string;
   basis: PricingBasis;
+  /** Тот же отбор, что в сводке: иначе список не сошёлся бы с суммой клиента. */
+  excludeCancelled: boolean;
 }) {
   const orders = useBackend(
-    () => listClientOrders({ customerId: client.customerId, from, to, basis }),
-    [client.customerId, from, to, basis],
+    () =>
+      listClientOrders({
+        customerId: client.customerId,
+        from,
+        to,
+        basis,
+        excludeCancelled: excludeCancelled || undefined,
+      }),
+    [client.customerId, from, to, basis, excludeCancelled],
   );
 
   const rows = orders.data ?? [];
@@ -472,6 +512,7 @@ function ClientOrders({
         <DialogTitle>{client.customerName}</DialogTitle>
         <DialogDescription>
           {`${formatDateRange(from, to)} · ${BASIS_SHORT[basis]} · заказов ${formatNumber(client.orders)}`}
+          {excludeCancelled && " · без отменённых"}
           {client.provisional && " · тариф по умолчанию, сумма предварительная"}
         </DialogDescription>
       </DialogHeader>

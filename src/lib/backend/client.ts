@@ -253,6 +253,8 @@ export interface PricingPeriod extends Params {
 /** Период плюс отбор заказов: все по дате создания или только доставленные. */
 export interface PricingWindow extends PricingPeriod {
   basis?: PricingBasis;
+  /** Не считать отменённые заказы. Нет у старого бэкенда — он параметр игнорирует. */
+  excludeCancelled?: boolean;
 }
 
 /** Производственная прибыль за период: выручка, расходы, прибыль. */
